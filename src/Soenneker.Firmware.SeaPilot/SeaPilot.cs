@@ -27,6 +27,7 @@ public sealed class SeaPilot(
     FirmwarePackageResolver packages,
     FirmwareUpdateWriter writer,
     FirmwareUpdateLock updateLock,
+    SeaPilotDriveDiscovery discovery,
     ILogger<SeaPilot> logger) : ISeaPilot
 {
 
@@ -37,15 +38,21 @@ public sealed class SeaPilot(
         logger.LogInformation("Waiting for exclusive firmware update access.");
         using FileLockLease lease = await updateLock.Acquire(cancellationToken);
         logger.LogInformation("Discovering attached drives.");
-        List<OpenSeaChestDrive> drives = await openSeaChest.GetDrives(cancellationToken);
-        var results = new List<FirmwareUpdateResult>(drives.Count);
+        List<DriveDiscoveryResult> discovered = await discovery.Discover(cancellationToken);
+        var results = new List<FirmwareUpdateResult>(discovered.Count);
         var serials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var images = new Dictionary<string, FirmwareImageSelection>(StringComparer.Ordinal);
-        logger.LogInformation("Discovered {Count} drives. Preparing all applicable firmware before any writes.", drives.Count);
-        foreach (OpenSeaChestDrive drive in drives)
+        logger.LogInformation("Discovered {Count} drives. Preparing all applicable firmware before any writes.", discovered.Count);
+        foreach (DriveDiscoveryResult entry in discovered)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            OpenSeaChestDrive drive = entry.Drive;
             var result = new FirmwareUpdateResult { Drive = drive };
+            if (entry.Error is not null)
+            {
+                results.Add(result with { SkipReason = "Device information unavailable: " + entry.Error.GetBaseException().Message });
+                continue;
+            }
             try
             {
                 logger.LogInformation("Checking {Device}: {Model}, serial {Serial}, firmware {Revision}.",
@@ -106,7 +113,7 @@ public sealed class SeaPilot(
         logger.LogInformation("Preparation complete. Updating {Count} drives sequentially.",
             results.Count(result => result.Image is not null && result.Error is null && result.SkipReason is null));
         return await writer.WriteAll(results,
-            token => openSeaChest.GetDrives(token).AsTask(),
+            token => discovery.GetDrives(token),
             (device, image, token) => openSeaChest.UpgradeFirmware(device, image, token).AsTask(), cancellationToken);
     }
 
@@ -115,7 +122,7 @@ public sealed class SeaPilot(
     {
         string serial = ValidateSerial(serialNumber);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetRevision);
-        return FirmwareUpdateWriter.Verify(serial, targetRevision.Trim(), await openSeaChest.GetDrives(cancellationToken));
+        return FirmwareUpdateWriter.Verify(serial, targetRevision.Trim(), await discovery.GetDrives(cancellationToken));
     }
 
     public static bool IsSeagateDrive(OpenSeaChestDrive drive) =>
@@ -178,7 +185,7 @@ public sealed class SeaPilot(
         if (device.Trim().Equals("all", StringComparison.OrdinalIgnoreCase) || device.IndexOfAny(['*', '?']) >= 0)
             throw new ArgumentException("Select one device handle.", nameof(device));
         cancellationToken.ThrowIfCancellationRequested();
-        OpenSeaChestDrive drive = (await openSeaChest.GetDrives(cancellationToken)).SingleOrDefault(d =>
+        OpenSeaChestDrive drive = (await discovery.GetDrives(cancellationToken)).SingleOrDefault(d =>
                                       d.Handle.Equals(device,
                                           OperatingSystem.IsWindows()
                                               ? StringComparison.OrdinalIgnoreCase

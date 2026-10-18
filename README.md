@@ -28,6 +28,8 @@ Run from the extracted directory:
 
 On Linux, use `./seapilot` instead of `.\seapilot.exe`.
 
+`drives` reports inaccessible devices individually and continues with the others. Automatic updates skip those devices; they cannot pass the identity check required for a firmware write. If every discovered device is inaccessible, `drives` exits with code `1`. Scan failures and cancellation still stop the command.
+
 Drive discovery and updates require administrator/root access. Lookups require internet access; Chromium installs automatically on first use. Linux may also need Playwright's browser system dependencies.
 
 `download` requires exactly one offered package. No offering does not mean the drive is up to date. Downloads print the saved path, size, and SHA-256.

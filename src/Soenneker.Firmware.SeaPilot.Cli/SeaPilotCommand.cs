@@ -1,12 +1,11 @@
 using Microsoft.Extensions.Logging;
 using Soenneker.Firmware.SeaPilot.Abstract;
 using Soenneker.Firmware.SeaPilot.Dtos;
-using Soenneker.OpenSeaChest.Util.Abstract;
 using Soenneker.OpenSeaChest.Util.Dtos;
 
 namespace Soenneker.Firmware.SeaPilot.Cli;
 
-internal sealed class SeaPilotCommand(ISeaPilot pilot, IOpenSeaChestUtil openSeaChest, ILogger<SeaPilotCommand> logger)
+internal sealed class SeaPilotCommand(ISeaPilot pilot, SeaPilotDriveDiscovery discovery, ILogger<SeaPilotCommand> logger)
 {
     public async Task<int> Run(string[] args, CancellationToken token)
     {
@@ -14,11 +13,16 @@ internal sealed class SeaPilotCommand(ISeaPilot pilot, IOpenSeaChestUtil openSea
         {
             case "drives":
                 logger.LogInformation("Discovering attached drives.");
-                List<OpenSeaChestDrive> drives = await openSeaChest.GetDrives(token);
+                List<DriveDiscoveryResult> drives = await discovery.Discover(token);
                 if (drives.Count == 0) logger.LogInformation("No drives discovered. Native device access may require administrator/root permissions.");
-                foreach (OpenSeaChestDrive drive in drives)
-                    Console.WriteLine($"{drive.Handle}\t{drive.ModelNumber}\t{drive.SerialNumber}\t{drive.FirmwareRevision}");
-                break;
+                foreach (DriveDiscoveryResult entry in drives)
+                {
+                    OpenSeaChestDrive drive = entry.Drive;
+                    Console.WriteLine(entry.Error is null
+                        ? $"{drive.Handle}\t{drive.ModelNumber}\t{drive.SerialNumber}\t{drive.FirmwareRevision}"
+                        : $"{drive.Handle}\tunavailable: {entry.Error.GetBaseException().Message}");
+                }
+                return drives.Count > 0 && drives.All(entry => entry.Error is not null) ? 1 : 0;
             case "lookup":
                 FirmwareLookup lookup = await pilot.FindFirmware(args[1], token);
                 Console.WriteLine($"Serial: {lookup.SerialNumber}; recognized: {lookup.IsRecognized}; model: {lookup.ModelNumber}");
