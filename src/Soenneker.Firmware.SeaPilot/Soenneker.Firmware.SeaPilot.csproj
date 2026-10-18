@@ -16,7 +16,7 @@
         <AssemblyName>Soenneker.Firmware.SeaPilot</AssemblyName>
         <PackageId>Soenneker.Firmware.SeaPilot</PackageId>
         <PackageTags>firmware seapilot seagate openseachest playwright util csharp dotnet c# .net</PackageTags>
-        <Copyright>Copyright Â© 2026 Jake Soenneker</Copyright>
+        <Copyright>Copyright © 2026 Jake Soenneker</Copyright>
         <Authors>Jake Soenneker</Authors>
         <Company>https://soenneker.com</Company>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
