@@ -84,7 +84,7 @@ public sealed class SeaPilot(
                             result = result with { SkipReason = "Installed firmware is the offered revision or newer." };
                         else
                         {
-                            FirmwareDownload package = await DownloadFirmwareCore(release, null, true, cancellationToken);
+                            FirmwareDownload package = await DownloadFirmwareCore(release, null, true, cancellationToken, drive.FirmwareRevision);
                             result = result with { Package = package };
                             if (!images.TryGetValue(package.Sha256, out FirmwareImageSelection? image))
                             {
@@ -92,6 +92,7 @@ public sealed class SeaPilot(
                                 images.Add(package.Sha256, image);
                             }
                             result = result with { Image = image };
+                            logger.LogInformation("{Device}: installed {Installed}; package target {Target}.", drive.Handle, drive.FirmwareRevision, image.TargetRevision);
                             FirmwarePackageResolver.ValidateSectorSize(drive, image.FilePath);
                             if (!FirmwarePackageResolver.NeedsUpdate(drive.FirmwareRevision!, image.TargetRevision))
                                 result = result with { SkipReason = "Installed firmware is the offered revision or newer." };
@@ -240,14 +241,16 @@ public sealed class SeaPilot(
     }
 
     private async ValueTask<FirmwareDownload> DownloadFirmwareCore(FirmwareRelease firmware, string? destinationDirectory,
-        bool refresh, CancellationToken cancellationToken)
+        bool refresh, CancellationToken cancellationToken, string? installedRevision = null)
     {
         ArgumentNullException.ThrowIfNull(firmware);
         ArgumentNullException.ThrowIfNull(firmware.DownloadUri);
         SeagateResponseParser.ValidateUri(firmware.DownloadUri);
         ValidateSerial(firmware.SerialNumber);
         string? directory = destinationDirectory is null ? null : Path.GetFullPath(destinationDirectory);
-        logger.LogInformation("Preparing firmware package {Title}. Destination: {Directory}. Waiting for download/cache access.", firmware.Title, directory);
+        logger.LogInformation("Preparing {Title} for {Serial}: {Revision}. Destination: {Directory}.", firmware.Title,
+            firmware.SerialNumber, FirmwareDownloadProgress.DescribeRevision(firmware.DownloadUri.AbsolutePath, installedRevision),
+            directory ?? options.Value.CacheDirectory);
         FirmwareDownload? existing = refresh ? null : await cache.Find(firmware, null, cancellationToken);
         if (existing is not null)
         {
@@ -255,9 +258,10 @@ public sealed class SeaPilot(
             return await fileStore.Save(existing.FilePath, Path.GetFileName(existing.FilePath), directory!, firmware,
                 options.Value.MaximumDownloadBytes, cancellationToken);
         }
-        logger.LogInformation("Downloading firmware from Seagate. Large packages can take several minutes; timeout is {Timeout}.", options.Value.DownloadTimeout);
+        logger.LogInformation("Requesting {Title} from Seagate for {Serial}; timeout is {Timeout}.", firmware.Title, firmware.SerialNumber, options.Value.DownloadTimeout);
         return await WithBrowser(async (page, token) =>
         {
+            await using FirmwareDownloadProgress progress = await FirmwareDownloadProgress.Attach(page, logger, firmware.SerialNumber, installedRevision);
             IDownload download = await page.RunAndWaitForDownloadAsync(async () =>
             {
                 // Chromium aborts navigation when it hands a response to the download manager.
@@ -278,6 +282,8 @@ public sealed class SeaPilot(
             try
             {
                 SeagateResponseParser.ValidateUri(new Uri(download.Url));
+                logger.LogInformation("Receiving {Filename} for {Serial}: {Revision}.", download.SuggestedFilename,
+                    firmware.SerialNumber, FirmwareDownloadProgress.DescribeRevision(download.SuggestedFilename, installedRevision));
                 string? path = await download.PathAsync();
                 string? failure = await download.FailureAsync();
                 if (failure is not null || path is null)

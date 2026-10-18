@@ -54,5 +54,8 @@
         <PackageReference Include="Soenneker.Utils.File" Version="4.0.2319" />
         <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2757" />
     </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="Soenneker.Firmware.SeaPilot.Tests" />
+    </ItemGroup>
 </Project>
 
