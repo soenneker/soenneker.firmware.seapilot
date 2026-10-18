@@ -51,6 +51,28 @@ public sealed class FirmwareCache(
         return match;
     }
 
+    internal async Task<FirmwareDownload?> FindOffering(FirmwareRelease firmware, string revision, CancellationToken token)
+    {
+        using FileLockLease lease = await Acquire(token);
+        if (string.IsNullOrWhiteSpace(firmware.Title) || string.IsNullOrWhiteSpace(firmware.Description)) return null;
+        FirmwareDownload? match = null;
+        foreach (FirmwareDownload download in await GetAllCore(null, token))
+        {
+            if (download.Length > options.Value.MaximumDownloadBytes ||
+                download.Firmware.Title != firmware.Title || download.Firmware.Description != firmware.Description) continue;
+            string cachedRevision;
+            try { cachedRevision = FirmwarePackageResolver.GetRevision(Path.GetFileName(download.FilePath)); }
+            catch (InvalidDataException) { continue; }
+            if (!cachedRevision.Equals(revision, StringComparison.OrdinalIgnoreCase)) continue;
+            // Certificate keys change between lookups. Match the offering metadata, not those transient URLs.
+            // Conflicting cached content for one offering requires a fresh download.
+            if (match is not null && match.Sha256 != download.Sha256) return null;
+            match = download with { Firmware = firmware };
+        }
+        if (match is not null) await WriteReceipt(match, token);
+        return match;
+    }
+
     public async Task<FirmwareDownload?> FindValidated(FirmwareRelease firmware, FirmwareRemoteIdentity identity, CancellationToken token)
     {
         using FileLockLease lease = await Acquire(token);

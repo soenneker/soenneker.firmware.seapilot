@@ -264,7 +264,7 @@ public sealed class SeaPilot(
         logger.LogInformation("Requesting {Title} from Seagate for {Serial}; timeout is {Timeout}.", firmware.Title, firmware.SerialNumber, options.Value.DownloadTimeout);
         return await WithBrowser(async (page, token) =>
         {
-            if (installedRevision is not null && SeagateCertificatePage.GetPageUri(firmware.DownloadUri) is { } certificate)
+            if (SeagateCertificatePage.GetPageUri(firmware.DownloadUri) is { } certificate)
             {
                 try
                 {
@@ -276,6 +276,15 @@ public sealed class SeaPilot(
                     {
                         logger.LogInformation("{Serial}: installed {Installed}; Seagate page offers {Offered}.", firmware.SerialNumber, installedRevision, revision);
                         FirmwareDownloadEligibility.Check($"firmware-{revision}.zip", installedRevision);
+                        FirmwareDownload? offeredCache = await cache.FindOffering(firmware, revision, token);
+                        if (offeredCache is not null)
+                        {
+                            logger.LogInformation("Reusing {Filename} for {Serial}: Seagate offering and revision match; cached SHA-256 verified. No package download needed.",
+                                Path.GetFileName(offeredCache.FilePath), firmware.SerialNumber);
+                            if (directory is null) return offeredCache;
+                            return await fileStore.Save(offeredCache.FilePath, Path.GetFileName(offeredCache.FilePath), directory, firmware,
+                                options.Value.MaximumDownloadBytes, token);
+                        }
                     }
                 }
                 catch (PlaywrightException) { logger.LogDebug("Certificate page metadata unavailable; checking download metadata."); }

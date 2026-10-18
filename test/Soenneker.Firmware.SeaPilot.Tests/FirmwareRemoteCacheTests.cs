@@ -12,6 +12,66 @@ namespace Soenneker.Firmware.SeaPilot.Tests;
 public sealed class FirmwareRemoteCacheTests(Host host) : HostedUnitTest(host)
 {
     [Test]
+    public async Task OfferingCacheRequiresReceiptAndRejectsTruncatedDownloads()
+    {
+        var cache = Resolve<FirmwareCache>(true);
+        var firmware = new FirmwareRelease { SerialNumber = "PERSISTED", Title = "Offering " + Guid.NewGuid(),
+            Description = "512E firmware", DownloadUri = new Uri("https://apps1.seagate.com/package") };
+        string source = Path.Combine(Path.GetTempPath(), $"firmware-{Guid.NewGuid()}.bin");
+        string filename = $"test-{Guid.NewGuid()}-SN06.bin";
+        try
+        {
+            await File.WriteAllBytesAsync(source, [1, 2, 3, 4, 5, 6]);
+            FirmwareDownload stored = await cache.Store(source, filename, firmware, default);
+            string directory = Path.GetDirectoryName(stored.FilePath)!;
+            string receipt = Path.Combine(directory, "receipt.json");
+            string completedReceipt = await File.ReadAllTextAsync(receipt);
+            await File.WriteAllBytesAsync(Path.Combine(directory, ".interrupted.partial"), [1, 2]);
+            if ((await cache.FindOffering(firmware, "SN06", default))?.Sha256 != stored.Sha256)
+                throw new Exception("Completed disk cache was not reusable with an interrupted transfer alongside it.");
+            File.Delete(receipt);
+            if (await cache.FindOffering(firmware, "SN06", default) is not null)
+                throw new Exception("Unreceipted file was reused.");
+            await File.WriteAllTextAsync(receipt, completedReceipt);
+            await File.WriteAllBytesAsync(stored.FilePath, [1, 2]);
+            if (await cache.FindOffering(firmware, "SN06", default) is not null)
+                throw new Exception("Truncated package was reused.");
+        }
+        finally { File.Delete(source); }
+    }
+
+    [Test]
+    public async Task OfferingReuseChecksMetadataRevisionIntegrityAndConflicts()
+    {
+        var cache = Resolve<FirmwareCache>(true);
+        var first = new FirmwareRelease { SerialNumber = "OFFERFIRST", Title = "Exos " + Guid.NewGuid(),
+            Description = "512E firmware", DownloadUri = new Uri("https://apps1.seagate.com/downloads/certificate.html?action=performDownload&key=111") };
+        var second = first with { SerialNumber = "OFFERSECOND", DownloadUri = new Uri("https://apps1.seagate.com/downloads/certificate.html?action=performDownload&key=222") };
+        string source = Path.Combine(Path.GetTempPath(), $"firmware-{Guid.NewGuid()}.bin");
+        string filename = $"test-{Guid.NewGuid()}-SN06.bin";
+        try
+        {
+            await File.WriteAllBytesAsync(source, [1, 2, 3, 4]);
+            FirmwareDownload stored = await cache.Store(source, filename, first, default);
+            if ((await cache.FindOffering(second, "SN06", default))?.Sha256 != stored.Sha256)
+                throw new Exception("Changed serial and certificate key prevented offering reuse.");
+            if (await cache.FindOffering(second, "SN07", default) is not null ||
+                await cache.FindOffering(second with { Title = "Other family" }, "SN06", default) is not null ||
+                await cache.FindOffering(second with { Description = "4KN only" }, "SN06", default) is not null)
+                throw new Exception("Different offering reused cached bytes.");
+            await File.WriteAllBytesAsync(source, [5, 6, 7, 8]);
+            await cache.Store(source, filename, first, default);
+            if (await cache.FindOffering(second, "SN06", default) is not null)
+                throw new Exception("Ambiguous cache content accepted.");
+            await File.WriteAllBytesAsync(stored.FilePath, [9, 9, 9, 9]);
+            FirmwareDownload? remaining = await cache.FindOffering(second, "SN06", default);
+            if (remaining is null || remaining.Sha256 == stored.Sha256)
+                throw new Exception("Corrupt entry was not rejected.");
+        }
+        finally { File.Delete(source); }
+    }
+
+    [Test]
     public async Task ValidatorReusesAcrossSerialsButRejectsChangedResourcesAndCorruptBytes()
     {
         var cache = Resolve<FirmwareCache>(true);
