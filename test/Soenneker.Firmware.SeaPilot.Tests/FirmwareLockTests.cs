@@ -15,9 +15,11 @@ namespace Soenneker.Firmware.SeaPilot.Tests;
 public sealed class FirmwareLockTests(Host host) : HostedUnitTest(host)
 {
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task OperationsWaitForAnotherProcessAndCancellationDoesNotReleaseItsLock(bool update)
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    public async Task OperationsWaitForAnotherProcessAndCancellationDoesNotReleaseItsLock(bool update, bool terminateOwner)
     {
         string cacheDirectory = Resolve<IOptions<SeaPilotOptions>>(true).Value.CacheDirectory;
         string lockPath = update ? Resolve<FirmwareUpdateLock>(true).FilePath : Path.Combine(cacheDirectory, "cache.lock");
@@ -46,11 +48,15 @@ public sealed class FirmwareLockTests(Host host) : HostedUnitTest(host)
             using var secondCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             Task second = update ? WaitForUpdateLock(secondCancellation.Token) : cache.GetAll("LOCKTEST", secondCancellation.Token);
             if (second.IsCompleted) throw new Exception("Cancellation released another process's lease.");
-            await process.StandardInput.WriteLineAsync("release");
-            await process.StandardInput.FlushAsync();
+            if (terminateOwner) process.Kill(entireProcessTree: true);
+            else
+            {
+                await process.StandardInput.WriteLineAsync("release");
+                await process.StandardInput.FlushAsync();
+            }
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
             await second;
-            if (process.ExitCode != 0) throw new Exception("Lock probe failed.");
+            if (!terminateOwner && process.ExitCode != 0) throw new Exception("Lock probe failed.");
             if (!File.Exists(lockPath)) throw new Exception("Lock file was deleted.");
         }
         finally
@@ -58,6 +64,32 @@ public sealed class FirmwareLockTests(Host host) : HostedUnitTest(host)
             if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
         }
     }
+    [Test]
+    public async Task CancellationReleasesOwnedLeaseAfterOperationUnwinds()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"seapilot-lock-{Guid.NewGuid()}");
+        using var cancellation = new CancellationTokenSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task Operation()
+        {
+            using FileLockLease lease = await new FileLock(path).Acquire(cancellation.Token);
+            entered.SetResult();
+            await Task.Delay(Timeout.Infinite, cancellation.Token);
+        }
+        try
+        {
+            Task operation = Operation();
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await cancellation.CancelAsync();
+            try { await operation; throw new Exception("Operation ignored cancellation."); }
+            catch (OperationCanceledException) { }
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using FileLockLease next = await new FileLock(path).Acquire(deadline.Token);
+            if (!File.Exists(path)) throw new Exception("Lock file must persist across leases.");
+        }
+        finally { File.Delete(path); }
+    }
+
     private async Task WaitForUpdateLock(CancellationToken token)
     {
         using FileLockLease lease = await Resolve<FirmwareUpdateLock>(true).Acquire(token);

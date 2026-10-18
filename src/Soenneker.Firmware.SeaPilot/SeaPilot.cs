@@ -103,6 +103,7 @@ public sealed class SeaPilot(
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (FirmwareDownloadSkippedException skipped) { result = result with { SkipReason = skipped.Message }; }
             catch (Exception exception) { result = result with { Error = exception }; }
             results.Add(result);
             if (result.Error is not null) logger.LogError(result.Error, "Could not prepare firmware for {Device}.", drive.Handle);
@@ -247,6 +248,8 @@ public sealed class SeaPilot(
         ArgumentNullException.ThrowIfNull(firmware.DownloadUri);
         SeagateResponseParser.ValidateUri(firmware.DownloadUri);
         ValidateSerial(firmware.SerialNumber);
+        cancellationToken.ThrowIfCancellationRequested();
+        FirmwareDownloadEligibility.Check(firmware.DownloadUri.AbsolutePath, installedRevision);
         string? directory = destinationDirectory is null ? null : Path.GetFullPath(destinationDirectory);
         logger.LogInformation("Preparing {Title} for {Serial}: {Revision}. Destination: {Directory}.", firmware.Title,
             firmware.SerialNumber, FirmwareDownloadProgress.DescribeRevision(firmware.DownloadUri.AbsolutePath, installedRevision),
@@ -261,6 +264,22 @@ public sealed class SeaPilot(
         logger.LogInformation("Requesting {Title} from Seagate for {Serial}; timeout is {Timeout}.", firmware.Title, firmware.SerialNumber, options.Value.DownloadTimeout);
         return await WithBrowser(async (page, token) =>
         {
+            if (installedRevision is not null && SeagateCertificatePage.GetPageUri(firmware.DownloadUri) is { } certificate)
+            {
+                try
+                {
+                    await page.GotoAsync(certificate.AbsoluteUri, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 15000 });
+                    token.ThrowIfCancellationRequested();
+                    SeagateResponseParser.ValidateUri(new Uri(page.Url));
+                    string? revision = await SeagateCertificatePage.ReadRevision(page, certificate);
+                    if (revision is not null)
+                    {
+                        logger.LogInformation("{Serial}: installed {Installed}; Seagate page offers {Offered}.", firmware.SerialNumber, installedRevision, revision);
+                        FirmwareDownloadEligibility.Check($"firmware-{revision}.zip", installedRevision);
+                    }
+                }
+                catch (PlaywrightException) { logger.LogDebug("Certificate page metadata unavailable; checking download metadata."); }
+            }
             // HEAD transfers no package body. Only a strong validator for the same final URL
             // can authorize reuse across independently looked-up serials.
             try
@@ -270,10 +289,19 @@ public sealed class SeaPilot(
                 try
                 {
                     SeagateResponseParser.ValidateUri(new Uri(head.Url));
+                    token.ThrowIfCancellationRequested();
+                    if (head.Status == 200)
+                    {
+                        FirmwareDownloadEligibility.Check(new Uri(head.Url).AbsolutePath, installedRevision);
+                        string? disposition = head.Headers.FirstOrDefault(header => header.Key.Equals("content-disposition", StringComparison.OrdinalIgnoreCase)).Value;
+                        if (FirmwareDownloadEligibility.GetHeaderFilename(disposition) is { } filename)
+                            FirmwareDownloadEligibility.Check(filename, installedRevision);
+                    }
                     FirmwareRemoteIdentity? identity = head.Status == 200 ? FirmwareRemoteIdentity.FromHeaders(head.Url, head.Headers) : null;
                     FirmwareDownload? validated = identity is null ? null : await cache.FindValidated(firmware, identity, token);
                     if (validated is not null)
                     {
+                        FirmwareDownloadEligibility.Check(validated.FilePath, installedRevision);
                         logger.LogInformation("Reusing cached {Filename} for {Serial}: {Revision}; server validator and SHA-256 verified. No package download needed.",
                             Path.GetFileName(validated.FilePath), firmware.SerialNumber,
                             FirmwareDownloadProgress.DescribeRevision(validated.FilePath, installedRevision));
@@ -304,9 +332,12 @@ public sealed class SeaPilot(
                 {
                 }
             });
+            bool skippedDownload = false;
             try
             {
+                token.ThrowIfCancellationRequested();
                 SeagateResponseParser.ValidateUri(new Uri(download.Url));
+                await FirmwareDownloadEligibility.CheckDownload(download.SuggestedFilename, installedRevision, download.CancelAsync);
                 logger.LogInformation("Receiving {Filename} for {Serial}: {Revision}.", download.SuggestedFilename,
                     firmware.SerialNumber, FirmwareDownloadProgress.DescribeRevision(download.SuggestedFilename, installedRevision));
                 string? path = await download.PathAsync();
@@ -321,9 +352,15 @@ public sealed class SeaPilot(
                 logger.LogInformation("Firmware saved to {Path} ({Bytes} bytes).", saved.FilePath, saved.Length);
                 return saved;
             }
+            catch (FirmwareDownloadSkippedException)
+            {
+                skippedDownload = true;
+                throw;
+            }
             finally
             {
-                await download.DeleteAsync();
+                // Playwright cannot delete a canceled artifact; context teardown removes its temporary files.
+                if (!skippedDownload) await download.DeleteAsync();
             }
         }, options.Value.DownloadTimeout, cancellationToken);
     }

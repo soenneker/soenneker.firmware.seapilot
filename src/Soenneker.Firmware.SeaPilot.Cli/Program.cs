@@ -70,7 +70,7 @@ internal static class Program
         ConsoleCancelEventHandler handler = (_, e) =>
         {
             e.Cancel = true;
-            logger.LogInformation("Cancellation requested. If a firmware write is active, waiting for it to finish.");
+            logger.LogInformation("Cancellation requested. Waiting for any active firmware write and cleanup before releasing locks.");
             cancellation.Cancel();
         };
         Console.CancelKeyPress += handler;
@@ -89,7 +89,7 @@ internal static class Program
             await using ServiceProvider provider = services.BuildServiceProvider();
             return await provider.GetRequiredService<SeaPilotCommand>().Run(args, cancellation.Token);
         }
-        catch (OperationCanceledException) { logger.LogInformation("Cancelled. Previously completed updates remain applied."); return 130; }
+        catch (OperationCanceledException) { logger.LogInformation("Cancelled. Locks released; previously completed updates remain applied."); return 130; }
         catch (Exception exception) { logger.LogError(exception, "SeaPilot command failed: {Message}", exception.Message); return 1; }
         finally { Console.CancelKeyPress -= handler; }
     }

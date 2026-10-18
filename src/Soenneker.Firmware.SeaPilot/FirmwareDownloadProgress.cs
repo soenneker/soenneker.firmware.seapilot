@@ -62,6 +62,11 @@ public sealed class FirmwareDownloadProgress : IAsyncDisposable
         _guid = guid.GetString();
         Filename = filename.GetString();
         if (Filename is null) return;
+        if (FirmwareDownloadEligibility.GetSkipReason(Filename, _installed) is { } reason)
+        {
+            _logger.LogInformation("{Serial}: {Reason}", _serial, reason);
+            return;
+        }
         _logger.LogInformation("Downloading {Filename} for {Serial}: {Revision}.", Filename, _serial, DescribeRevision(Filename, _installed));
     }
 
@@ -72,6 +77,7 @@ public sealed class FirmwareDownloadProgress : IAsyncDisposable
             !data.TryGetProperty("receivedBytes", out JsonElement received) || !received.TryGetDouble(out double bytes) ||
             !data.TryGetProperty("totalBytes", out JsonElement total) || !total.TryGetDouble(out double size) ||
             !data.TryGetProperty("state", out JsonElement state)) return;
+        if (Filename is not null && FirmwareDownloadEligibility.GetSkipReason(Filename, _installed) is not null) return;
         if (!double.IsFinite(bytes) || bytes < 0 || !double.IsFinite(size)) return;
         string? status = state.GetString();
         ReceivedBytes = bytes;

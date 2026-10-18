@@ -32,7 +32,7 @@ On Linux, use `./seapilot` instead of `.\seapilot.exe`.
 
 Drive discovery and updates require administrator/root access. Lookups require internet access; Chromium installs automatically on first use. Linux may also need Playwright's browser system dependencies.
 
-`download` requires exactly one offered package. No offering does not mean the drive is up to date. Downloads print the saved path, size, and SHA-256. Download logs show the offered revision when it can be read from the URL or filename, and the installed revision during updates. Progress shows a percentage when Chromium reports the total size; otherwise it shows bytes received. Package inspection confirms the target revision before flashing.
+`download` requires exactly one offered package. No offering does not mean the drive is up to date. Downloads print the saved path, size, and SHA-256. Download logs show the offered revision when it can be read from the URL or filename, and the installed revision during updates. Progress shows a percentage when Chromium reports the total size; otherwise it shows bytes received. During updates, an equal or older revision in the URL, response filename, or download filename skips the transfer; a transfer already started is canceled before saving or caching. Package inspection confirms the target revision before flashing.
 
 ### Update all eligible drives
 
