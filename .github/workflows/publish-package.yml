@@ -1,0 +1,159 @@
+name: publish-package
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'test/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  PipelineEnvironment: true
+  NUGET_XMLDOC_MODE: skip
+
+jobs:
+  cli-binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-24.04
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish and smoke-test CLI
+        shell: pwsh
+        env:
+          BUILD_VERSION: 4.0.${{ github.run_number }}
+          TARGET_RID: ${{ matrix.rid }}
+        run: |
+          dotnet publish src/Soenneker.Firmware.SeaPilot.Cli -c Release -r $env:TARGET_RID --self-contained true -o artifacts/cli
+          if ($LASTEXITCODE -ne 0) { throw 'CLI publish failed' }
+          $executable = if ($IsWindows) { './artifacts/cli/seapilot.exe' } else { './artifacts/cli/seapilot' }
+          & $executable --help
+          if ($LASTEXITCODE -ne 0) { throw 'CLI help failed' }
+          & $executable cached CLISMOKETEST
+          if ($LASTEXITCODE -ne 0) { throw 'CLI dependency injection smoke test failed' }
+          if (!(Test-Path artifacts/cli/.playwright)) { throw 'Playwright driver missing' }
+          $nativeDirectory = "artifacts/cli/Resources/OpenSeaChest/$env:TARGET_RID"
+          $suffix = if ($IsWindows) { '.exe' } else { '' }
+          foreach ($tool in @('Basics', 'Info', 'Firmware')) {
+            $native = "$nativeDirectory/openSeaChest_$tool$suffix"
+            if (!(Test-Path $native)) { throw "Missing native resource: $native" }
+            if (!$IsWindows) {
+              chmod +x $native
+              & $native --version
+              if ($LASTEXITCODE -ne 0) { throw "Native resource smoke test failed: $native" }
+            }
+            # Windows executables require elevation even for --version; verify their presence without prompting for UAC.
+          }
+          if (!(Test-Path artifacts/cli/Resources/OpenSeaChest/LICENSE.txt)) { throw 'OpenSeaChest license missing' }
+          New-Item -ItemType Directory -Force artifacts/release | Out-Null
+          Copy-Item LICENSE artifacts/cli/LICENSE
+          $name = "seapilot-$env:BUILD_VERSION-$env:TARGET_RID"
+          if ($IsWindows) {
+            $archive = "artifacts/release/$name.zip"
+            [System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path artifacts/cli), (Join-Path $PWD $archive))
+          } else {
+            $archive = "artifacts/release/$name.tar.gz"
+            tar -czf $archive -C artifacts/cli .
+            if ($LASTEXITCODE -ne 0) { throw 'Archive creation failed' }
+          }
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path $archive -Leaf)" | Set-Content "$archive.sha256" -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seapilot-${{ matrix.rid }}
+          path: artifacts/release/*
+          if-no-files-found: error
+
+  publish-package:
+    needs: cli-binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setting up build version
+        shell: bash
+        run: |
+          echo "BUILD_VERSION=4.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
+      - name: Get release notes from latest commit
+        uses: soenneker/release-notes-from-commits@v2
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore tests
+        run: dotnet restore test/Soenneker.Firmware.SeaPilot.Tests/Soenneker.Firmware.SeaPilot.Tests.csproj --verbosity minimal
+
+      - name: Build tests
+        run: dotnet build test/Soenneker.Firmware.SeaPilot.Tests/Soenneker.Firmware.SeaPilot.Tests.csproj --configuration Release --no-restore --verbosity minimal
+
+      - name: Test
+        run: dotnet test --project test/Soenneker.Firmware.SeaPilot.Tests/Soenneker.Firmware.SeaPilot.Tests.csproj --configuration Release --no-build --no-restore --verbosity normal
+
+      - name: Pack
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          dotnet pack src/Soenneker.Firmware.SeaPilot/Soenneker.Firmware.SeaPilot.csproj \
+            --configuration Release \
+            --no-build \
+            --no-restore \
+            --output ./artifacts
+
+      - name: Publish to NuGet
+        uses: soenneker/nuget-resilient-publish@v4
+        with:
+          api-key: ${{ secrets.nuget__token }}
+          packages: 'artifacts/*.nupkg'
+
+      - name: Publish to GitHub Packages
+        shell: bash
+        run: |
+          dotnet nuget push ./artifacts/*.nupkg \
+            --source "https://nuget.pkg.github.com/soenneker/index.json" \
+            --api-key "${{ secrets.GH__TOKEN }}" \
+            --skip-duplicate
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: seapilot-*
+          path: artifacts/releases
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        # Use the existing release job so binary assets and the NuGet version agree.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "v$BUILD_VERSION" ./artifacts/releases/* \
+            --target "$GITHUB_SHA" \
+            --title "v$BUILD_VERSION" \
+            --notes "$PACKAGE_RELEASE_NOTES"
