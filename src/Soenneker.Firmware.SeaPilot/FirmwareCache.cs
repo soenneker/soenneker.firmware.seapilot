@@ -51,6 +51,22 @@ public sealed class FirmwareCache(
         return match;
     }
 
+    public async Task<FirmwareDownload?> FindValidated(FirmwareRelease firmware, FirmwareRemoteIdentity identity, CancellationToken token)
+    {
+        using FileLockLease lease = await Acquire(token);
+        if (identity.Length > options.Value.MaximumDownloadBytes) return null;
+        foreach (FirmwareDownload download in await GetAllCore(null, token))
+        {
+            string receipt = Path.Combine(Path.GetDirectoryName(download.FilePath)!, "receipt.json");
+            FirmwareCacheEntry? entry = JsonUtil.Deserialize(await fileUtil.Read(receipt, cancellationToken: token), SeaPilotJsonContext.Default.FirmwareCacheEntry);
+            if (entry?.RemoteIdentity != identity || download.Length != identity.Length) continue;
+            FirmwareDownload result = download with { Firmware = firmware };
+            await WriteReceipt(result, token, identity);
+            return result;
+        }
+        return null;
+    }
+
     public async Task<IReadOnlyList<FirmwareDownload>> GetAll(string? serial, CancellationToken cancellationToken)
     {
         using FileLockLease lease = await Acquire(cancellationToken);
@@ -75,7 +91,7 @@ public sealed class FirmwareCache(
     }
 
     public async Task<FirmwareDownload> Store(string source, string filename, FirmwareRelease firmware,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, FirmwareRemoteIdentity? identity = null)
     {
         FirmwareFileStore.ValidateFilename(filename);
         using FileLockLease lease = await Acquire(cancellationToken);
@@ -96,7 +112,7 @@ public sealed class FirmwareCache(
         FirmwareDownload result = await store.Save(source, filename, directory, firmware,
             options.Value.MaximumDownloadBytes, cancellationToken);
         if (result.Sha256 != inspected.Sha256) throw new IOException("Firmware content changed before cache publication.");
-        await WriteReceipt(result, cancellationToken);
+        await WriteReceipt(result, cancellationToken, identity is not null && identity.Length == result.Length ? identity : null);
         return result;
     }
 
@@ -111,7 +127,7 @@ public sealed class FirmwareCache(
         return Path.Combine(Root, digest.ToLowerInvariant(), key);
     }
 
-    private async Task WriteReceipt(FirmwareDownload download, CancellationToken cancellationToken)
+    private async Task WriteReceipt(FirmwareDownload download, CancellationToken cancellationToken, FirmwareRemoteIdentity? identity = null)
     {
         string receipt = Path.Combine(Path.GetDirectoryName(download.FilePath)!, "receipt.json");
         var serials = new List<string>();
@@ -124,6 +140,7 @@ public sealed class FirmwareCache(
         serials.Add(download.Firmware.SerialNumber);
         var entry = new FirmwareCacheEntry
         {
+            RemoteIdentity = identity,
             Firmware = download.Firmware, Filename = Path.GetFileName(download.FilePath), Length = download.Length,
             Sha256 = download.Sha256, Serials = serials.Distinct(StringComparer.OrdinalIgnoreCase).ToList()
         };

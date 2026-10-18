@@ -261,6 +261,31 @@ public sealed class SeaPilot(
         logger.LogInformation("Requesting {Title} from Seagate for {Serial}; timeout is {Timeout}.", firmware.Title, firmware.SerialNumber, options.Value.DownloadTimeout);
         return await WithBrowser(async (page, token) =>
         {
+            // HEAD transfers no package body. Only a strong validator for the same final URL
+            // can authorize reuse across independently looked-up serials.
+            try
+            {
+                IAPIResponse head = await page.Context.APIRequest.HeadAsync(firmware.DownloadUri.AbsoluteUri,
+                    new() { Timeout = 15000 });
+                try
+                {
+                    SeagateResponseParser.ValidateUri(new Uri(head.Url));
+                    FirmwareRemoteIdentity? identity = head.Status == 200 ? FirmwareRemoteIdentity.FromHeaders(head.Url, head.Headers) : null;
+                    FirmwareDownload? validated = identity is null ? null : await cache.FindValidated(firmware, identity, token);
+                    if (validated is not null)
+                    {
+                        logger.LogInformation("Reusing cached {Filename} for {Serial}: {Revision}; server validator and SHA-256 verified. No package download needed.",
+                            Path.GetFileName(validated.FilePath), firmware.SerialNumber,
+                            FirmwareDownloadProgress.DescribeRevision(validated.FilePath, installedRevision));
+                        if (directory is null) return validated;
+                        return await fileStore.Save(validated.FilePath, Path.GetFileName(validated.FilePath), directory, firmware,
+                            options.Value.MaximumDownloadBytes, token);
+                    }
+                }
+                finally { await head.DisposeAsync(); }
+            }
+            catch (PlaywrightException) { logger.LogDebug("Server metadata unavailable; downloading the current offering."); }
+            await using FirmwareResponseObserver responseObserver = await FirmwareResponseObserver.Attach(page);
             await using FirmwareDownloadProgress progress = await FirmwareDownloadProgress.Attach(page, logger, firmware.SerialNumber, installedRevision);
             IDownload download = await page.RunAndWaitForDownloadAsync(async () =>
             {
@@ -289,7 +314,7 @@ public sealed class SeaPilot(
                 if (failure is not null || path is null)
                     throw new IOException("Seagate download failed: " + failure);
                 logger.LogInformation("Download complete. Validating and caching {Filename}.", download.SuggestedFilename);
-                FirmwareDownload stored = await cache.Store(path, download.SuggestedFilename, firmware, token);
+                FirmwareDownload stored = await cache.Store(path, download.SuggestedFilename, firmware, token, responseObserver.Find(download.Url));
                 if (directory is null) return stored;
                 FirmwareDownload saved = await fileStore.Save(stored.FilePath, download.SuggestedFilename, directory, firmware,
                     options.Value.MaximumDownloadBytes, token);

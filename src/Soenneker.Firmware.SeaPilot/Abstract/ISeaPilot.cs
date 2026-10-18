@@ -11,7 +11,7 @@ namespace Soenneker.Firmware.SeaPilot.Abstract;
 public interface ISeaPilot
 {
     /// <summary>Discovers all drives, independently queries Seagate for every unique drive serial on every call, prepares shared cached firmware packages, then automatically updates eligible drives sequentially.</summary>
-    /// <remarks>Firmware applicability is never inferred from matching models or another drive's lookup. Each current offering is downloaded and hashed before identical cached content is shared. Duplicate handles for the same serial are processed once.</remarks>
+    /// <remarks>Firmware applicability is never inferred from matching models or another drive's lookup. Each current offering is revalidated against the exact resource URL, strong server ETag and size before checksum-verified cached content is shared; unavailable validators require a fresh download. Duplicate handles for the same serial are processed once.</remarks>
     /// <remarks>Uses the primary image and revision in a serial-specific Seagate ZIP. Skips identical/newer revisions in the same firmware branch. Unsupported layouts, ambiguous offers, unknown upgrade paths and preparation/write failures are returned per drive. Packages and images are shared across serials and retained on disk. Verifies checksums and device identity before each write. Requires administrator/root access. Native completion may still require a power cycle; inspect returned output.</remarks>
     /// <param name="cancellationToken">Stops preparation or subsequent drives. An active firmware write finishes before cancellation is observed; earlier updates are not rolled back.</param>
     ValueTask<IReadOnlyList<FirmwareUpdateResult>> UpdateAllDriveFirmwares(CancellationToken cancellationToken = default);
@@ -31,7 +31,7 @@ public interface ISeaPilot
     ValueTask<FirmwareDownload> DownloadFirmware(FirmwareRelease firmware, string destinationDirectory,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Looks up and freshly downloads the current offering when Seagate returns exactly one package; verifies content before cache reuse. Throws when the serial is unknown, no package exists, or selection is ambiguous.</summary>
+    /// <summary>Looks up the current offering when Seagate returns exactly one package; reuses checksum-verified cached content only after server revalidation, otherwise downloads it. Throws when the serial is unknown, no package exists, or selection is ambiguous.</summary>
     ValueTask<FirmwareDownload> DownloadLatestFirmware(string serialNumber, string destinationDirectory,
         CancellationToken cancellationToken = default);
 
