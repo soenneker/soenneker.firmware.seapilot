@@ -27,6 +27,8 @@ public static class SeaPilotRegistrar
         services.TryAddSingleton<FirmwareCache>();
         services.AddZipUtilAsSingleton();
         services.TryAddSingleton<FirmwarePackageResolver>();
+        services.TryAddSingleton<FirmwareUpdateWriter>();
+        services.TryAddSingleton<FirmwareUpdateLock>();
         services.AddOptions<SeaPilotOptions>();
         if (configure is not null) services.Configure(configure);
         services.TryAddSingleton<ISeaPilot, SeaPilot>();
@@ -45,6 +47,8 @@ public static class SeaPilotRegistrar
         services.TryAddScoped<FirmwareCache>();
         services.AddZipUtilAsScoped();
         services.TryAddScoped<FirmwarePackageResolver>();
+        services.TryAddScoped<FirmwareUpdateWriter>();
+        services.TryAddSingleton<FirmwareUpdateLock>();
         services.AddOptions<SeaPilotOptions>();
         if (configure is not null) services.Configure(configure);
         services.TryAddScoped<ISeaPilot, SeaPilot>();

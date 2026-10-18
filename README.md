@@ -48,11 +48,19 @@ On Linux:
 sudo ./seapilot update-all
 ```
 
-SeaPilot checks each drive's serial with Seagate, prepares the firmware, then updates drives one at a time. It reuses cached packages, checks device identity and image checksums before writing, and skips identical or newer firmware in the same branch. Errors on one drive do not prevent updates to other eligible drives.
+SeaPilot checks each drive's serial with Seagate, prepares the firmware, then updates drives one at a time. It downloads each current offering and shares cached content only after matching its SHA-256, checks device identity and image checksums before writing, and skips identical or newer firmware in the same branch. Errors on one drive do not prevent updates to other eligible drives.
 
 Automatic updates require a ZIP with one primary `.lod` or `.bin` image at its root or directly in `firmware/`, matching package/image revisions, and a newer revision in the same firmware branch. Ambiguous packages, executable installers, and unknown upgrade paths return errors.
 
-Ctrl+C stops preparation or subsequent drives; an active write finishes first. Completed updates are not rolled back. Read the native output for activation instructions—a power cycle may be required.
+Ctrl+C stops preparation or subsequent drives; an active write finishes first. Completed updates are not rolled back. After each write, SeaPilot checks the active revision. A completed write with a different active revision is reported as activation unverified. Read the native output for activation instructions; a power cycle may be required. Check again afterward:
+
+```powershell
+.\seapilot.exe verify YOURSERIAL SN06
+```
+
+Use the actual target revision. `verify` matches by serial even if the device handle changed, and exits `0` only when the target revision is active.
+
+Updates take a machine-wide file lock at `%ProgramData%\Soenneker\SeaPilot\update.lock` on Windows or `/var/lib/soenneker/seapilot/update.lock` on Linux, independent of the cache location. A second update process waits; Ctrl+C cancels its wait. Cache operations and image preparation use `cache.lock` inside the cache directory. Do not delete or replace lock files while SeaPilot is running.
 
 ### Cache and exit codes
 
@@ -66,9 +74,9 @@ $env:SEAPILOT_CACHE_DIRECTORY = 'D:\SeaPilot\cache'
 export SEAPILOT_CACHE_DIRECTORY=/path/to/cache
 ```
 
-Running as a different account can change the default cache location. `cached` works offline. Downloads reuse verified cached files and do not overwrite different destination files. SHA-256 checks detect changed files; they are not manufacturer signatures.
+Running as a different account can change the default cache location. `cached` works offline. CLI downloads and automatic updates fetch current bytes before sharing identical cached content. The library's `DownloadFirmware` can replay a verified package for the same serial and URL offline. Different destination files are not overwritten. SHA-256 checks detect changed files; they are not manufacturer signatures.
 
-Exit codes: `0` success, `1` failure, `2` invalid arguments, `130` cancelled. Skipped drives alone do not make `update-all` fail. Use `--help` for usage and `--version` for the installed version.
+Exit codes: `0` success, `1` failure, `2` invalid arguments, `130` cancelled. Skipped drives or an observed revision that differs from the target alone do not make `update-all` fail; verification errors do. Use `--help` for usage and `--version` for the installed version.
 
 ## .NET library
 
@@ -113,7 +121,8 @@ In a hosted application, use its existing configuration and logging. `AddSeaPilo
 | `DownloadLatestFirmware(serial, directory)` | Download when exactly one package is offered. |
 | `DownloadFirmware(release, directory)` | Download a release selected from the lookup results. |
 | `GetCachedFirmware(serial)` | List verified cached downloads without a network request. |
-| `UpdateAllDriveFirmwares()` | Apply updates with the same behavior as CLI `update-all`. Inspect each result's `Error`, `SkipReason`, and `NativeOutput`. |
+| `VerifyFirmware(serial, targetRevision)` | Check the active revision after a write or power cycle. |
+| `UpdateAllDriveFirmwares()` | Apply updates with the same behavior as CLI `update-all`. Inspect `Error`, `SkipReason`, `WriteCompleted`, `Verification`, `VerificationError`, and `NativeOutput`. |
 
 All methods accept an optional `CancellationToken`. Network and lookup failures throw; automatic updates return per-drive errors, while cancellation and operation-level failures can still throw.
 

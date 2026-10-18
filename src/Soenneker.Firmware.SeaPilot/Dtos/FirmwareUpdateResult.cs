@@ -12,6 +12,10 @@ public sealed record FirmwareUpdateResult
     public FirmwareImageSelection? Image { get; init; }
     public string? SkipReason { get; init; }
     public Exception? Error { get; init; }
+    /// <summary>True only when the native write returned successfully; activation is checked separately.</summary>
+    public bool WriteCompleted { get; init; }
+    public FirmwareVerification? Verification { get; init; }
+    public Exception? VerificationError { get; init; }
     public bool FlashAttempted { get; init; }
     public IReadOnlyList<string>? NativeOutput { get; init; }
 }

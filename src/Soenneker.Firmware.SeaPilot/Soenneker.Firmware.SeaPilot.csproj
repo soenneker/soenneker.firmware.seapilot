@@ -45,7 +45,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="4.0.33" />
+        <PackageReference Include="Soenneker.Locks.Files" Version="4.0.2" />
         <PackageReference Include="Soenneker.Compression.Zip" Version="4.0.54" />
         <PackageReference Include="Soenneker.OpenSeaChest.Util" Version="4.0.6" PrivateAssets="none" />
         <PackageReference Include="Soenneker.Playwrights.Extensions.Stealth" Version="4.0.182" />

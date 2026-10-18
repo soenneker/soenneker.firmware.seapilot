@@ -33,15 +33,20 @@ internal sealed class SeaPilotCommand(ISeaPilot pilot, IOpenSeaChestUtil openSea
                 if (cached.Count == 0) logger.LogInformation("No verified firmware packages cached for this serial.");
                 foreach (FirmwareDownload download in cached) PrintDownload(download);
                 break;
+            case "verify":
+                FirmwareVerification verification = await pilot.VerifyFirmware(args[1], args[2], token);
+                Console.WriteLine($"{verification.SerialNumber}: active {verification.ObservedRevision}; target {verification.TargetRevision}; verified active: {verification.IsActive}");
+                return verification.IsActive ? 0 : 1;
             case "update-all":
                 IReadOnlyList<FirmwareUpdateResult> results = await pilot.UpdateAllDriveFirmwares(token);
                 foreach (FirmwareUpdateResult result in results)
                 {
-                    Console.WriteLine($"{result.Drive.Handle} ({result.Drive.SerialNumber}): {result.Error?.Message ?? result.SkipReason ?? "Native update completed; check activation instructions below."}");
+                    Console.WriteLine($"{result.Drive.Handle} ({result.Drive.SerialNumber}): {result.Error?.Message ?? result.SkipReason ?? (result.Verification?.IsActive == true ? "Target firmware verified active." : "Write completed; activation unverified. Check native instructions and run verify after any required power cycle.")}");
+                    if (result.VerificationError is not null) Console.WriteLine($"Verification failed: {result.VerificationError.Message}");
                     if (result.NativeOutput is not null)
                         foreach (string line in result.NativeOutput) Console.WriteLine(line);
                 }
-                return results.Any(result => result.Error is not null) ? 1 : 0;
+                return results.Any(result => result.Error is not null || result.VerificationError is not null) ? 1 : 0;
         }
         return 0;
     }

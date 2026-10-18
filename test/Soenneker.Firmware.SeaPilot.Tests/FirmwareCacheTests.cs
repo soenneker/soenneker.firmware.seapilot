@@ -39,16 +39,15 @@ public sealed class FirmwareCacheTests(Host host) : HostedUnitTest(host)
             FirmwareDownload repeated = await pilot.DownloadFirmware(firmware, Path.Combine(root, "output"));
             if (retry.Sha256 != saved.Sha256 || repeated.FilePath != retry.FilePath) throw new Exception("Cache replay was not idempotent.");
             if ((await pilot.GetCachedFirmware(firmware.SerialNumber)).Count != 1) throw new Exception("Offline inventory lost cached binary.");
-            // Reissued keys still identify the same server-suggested package name.
-            FirmwareDownload? refreshed = await cache.Find(firmware with { DownloadUri = new Uri("https://apps1.seagate.com/downloads/certificate.html?key=new-token") }, "firmware.zip", default);
-            if (refreshed?.Sha256 != saved.Sha256) throw new Exception("Changing download tokens bypassed the cache.");
-            FirmwareRelease otherDrive = firmware with { SerialNumber = firmware.SerialNumber + "OTHER", DownloadUri = new Uri("https://apps1.seagate.com/downloads/certificate.html?key=another-drive") };
-            FirmwareDownload? shared = await cache.Find(otherDrive, "firmware.zip", default);
-            if (shared?.FilePath != saved.FilePath || shared.Sha256 != saved.Sha256)
-                throw new Exception("Different serial did not reuse the same cached binary.");
-            if ((await pilot.GetCachedFirmware(otherDrive.SerialNumber)).Count != 1 ||
+            // A name or new URL cannot associate unverified bytes with another offering.
+            FirmwareRelease otherDrive = firmware with { SerialNumber = firmware.SerialNumber + "OTHER",
+                DownloadUri = new Uri("https://apps1.seagate.com/downloads/certificate.html?key=another-drive") };
+            if (await cache.Find(otherDrive, "firmware.zip", default) is not null)
+                throw new Exception("Filename alone authorized cached bytes for another offering.");
+            FirmwareDownload shared = await cache.Store(saved.FilePath, "firmware.zip", otherDrive, default);
+            if (shared.FilePath != saved.FilePath || (await pilot.GetCachedFirmware(otherDrive.SerialNumber)).Count != 1 ||
                 (await pilot.GetCachedFirmware(firmware.SerialNumber)).Count != 1)
-                throw new Exception("Shared package lost serial associations.");
+                throw new Exception("Verified identical content did not retain serial associations.");
         }
         finally { await directories.Delete(root); }
     }
@@ -89,8 +88,53 @@ public sealed class FirmwareCacheTests(Host host) : HostedUnitTest(host)
             FirmwareDownload saved = await cache.Store(source, "orphan.bin", firmware, default);
             await files.Delete(Path.Combine(Path.GetDirectoryName(saved.FilePath)!, "receipt.json"));
             FirmwareDownload? recovered = await cache.Find(firmware, "orphan.bin", default);
-            if (recovered?.Sha256 != saved.Sha256) throw new Exception("Completed orphan was downloaded again instead of recovered.");
+            if (recovered is not null) throw new Exception("An orphan authorized unverified bytes.");
+            FirmwareDownload stored = await cache.Store(source, "orphan.bin", firmware, default);
+            if (stored.Sha256 != saved.Sha256) throw new Exception("Validated content did not recover its receipt.");
         }
         finally { await directories.Delete(root); }
     }
+    [Test]
+    public async Task SameFilenameWithDifferentContentCannotReuseOldPackage()
+    {
+        var cache = Resolve<FirmwareCache>(true);
+        string root = Path.Combine(Path.GetTempPath(), $"seapilot-content-{Guid.NewGuid()}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var first = new FirmwareRelease { SerialNumber = $"A{Random.Shared.NextInt64(1, long.MaxValue)}", Title = "Firmware",
+                DownloadUri = new Uri("https://apps1.seagate.com/first.zip") };
+            var second = first with { SerialNumber = first.SerialNumber + "B", DownloadUri = new Uri("https://apps1.seagate.com/second.zip") };
+            string source = Path.Combine(root, "source.bin");
+            await File.WriteAllBytesAsync(source, [1, 2, 3, 4]);
+            FirmwareDownload old = await cache.Store(source, "same.bin", first, default);
+            if (await cache.Find(second, "same.bin", default) is not null) throw new Exception("Name collision reused old bytes.");
+            await File.WriteAllBytesAsync(source, [5, 6, 7, 8]);
+            FirmwareDownload current = await cache.Store(source, "same.bin", second, default);
+            if (old.FilePath == current.FilePath || old.Sha256 == current.Sha256) throw new Exception("Different content overwrote old package.");
+            if ((await cache.Find(second, "same.bin", default))?.Sha256 != current.Sha256) throw new Exception("Wrong offering replayed.");
+            if ((await cache.Find(first, "same.bin", default))?.Sha256 != old.Sha256) throw new Exception("First offering was lost.");
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Test]
+    public async Task ReissuedContentAtSameUrlCannotReplayAnArbitraryVersion()
+    {
+        var cache = Resolve<FirmwareCache>(true);
+        var firmware = new FirmwareRelease { SerialNumber = $"REISSUED{Random.Shared.NextInt64(1, long.MaxValue)}",
+            Title = "Firmware", DownloadUri = new Uri("https://apps1.seagate.com/reissued.bin") };
+        string source = Path.Combine(Path.GetTempPath(), $"seapilot-reissue-{Guid.NewGuid()}.bin");
+        try
+        {
+            await File.WriteAllBytesAsync(source, [1, 2, 3, 4]);
+            await cache.Store(source, "reissued.bin", firmware, default);
+            await File.WriteAllBytesAsync(source, [5, 6, 7, 8]);
+            await cache.Store(source, "reissued.bin", firmware, default);
+            if (await cache.Find(firmware, "reissued.bin", default) is not null)
+                throw new Exception("An ambiguous URL replayed arbitrary historical bytes.");
+        }
+        finally { File.Delete(source); }
+    }
+
 }

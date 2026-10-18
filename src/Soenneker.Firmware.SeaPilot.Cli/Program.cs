@@ -14,6 +14,7 @@ internal static class Program
         seapilot lookup <serial>
         seapilot download <serial> <directory>
         seapilot cached <serial>
+        seapilot verify <serial> <revision>
         seapilot update-all
         seapilot --version
 
@@ -55,7 +56,7 @@ internal static class Program
         {
             "drives" or "update-all" => args.Length == 1,
             "lookup" or "cached" => args.Length == 2,
-            "download" => args.Length == 3,
+            "download" or "verify" => args.Length == 3,
             _ => false
         };
         if (!valid || args.Skip(1).Any(string.IsNullOrWhiteSpace))

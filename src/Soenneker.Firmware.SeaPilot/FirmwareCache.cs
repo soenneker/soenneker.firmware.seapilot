@@ -14,7 +14,7 @@ using Soenneker.Firmware.SeaPilot.Options;
 using Soenneker.Utils.Directory.Abstract;
 using Soenneker.Utils.File.Abstract;
 using Soenneker.Utils.Json;
-using Soenneker.Asyncs.Semaphores;
+using Soenneker.Locks.Files;
 
 namespace Soenneker.Firmware.SeaPilot;
 
@@ -26,56 +26,38 @@ public sealed class FirmwareCache(
     IOptions<SeaPilotOptions> options,
     ILogger<FirmwareCache> logger)
 {
-    // Serialize downloads across scoped and singleton instances to avoid duplicate transfers within a process.
-    public static AsyncSemaphore DownloadGate { get; } = new(1, 1);
-
     private string Root => Path.GetFullPath(options.Value.CacheDirectory);
+
+    private async Task<FileLockLease> Acquire(CancellationToken token)
+    {
+        await directoryUtil.Create(Root, cancellationToken: token);
+        return await new FileLock(Path.Combine(Root, "cache.lock")).Acquire(token);
+    }
 
     public async Task<FirmwareDownload?> Find(FirmwareRelease firmware, string? filename,
         CancellationToken cancellationToken)
     {
-        if (filename is not null)
-        {
-            FirmwareFileStore.ValidateFilename(filename);
-            string directory = GetDirectory(filename);
-            FirmwareDownload? saved = await Read(Path.Combine(directory, "receipt.json"), cancellationToken);
-            if (saved is not null)
+        using FileLockLease lease = await Acquire(cancellationToken);
+        // Offline replay is limited to an already recorded serial and exact offering URL.
+        // Filename equality never establishes that two offerings have identical bytes.
+        FirmwareDownload? match = null;
+        foreach (FirmwareDownload cached in await GetAllCore(firmware.SerialNumber, cancellationToken))
+            if (cached.Firmware.DownloadUri == firmware.DownloadUri &&
+                (filename is null || Path.GetFileName(cached.FilePath) == filename))
             {
-                saved = saved with { Firmware = firmware };
-                await WriteReceipt(saved, cancellationToken);
-                return saved;
+                if (match is not null && match.Sha256 != cached.Sha256) return null;
+                match = cached with { Firmware = firmware };
             }
-            // A completed atomic binary may survive a failed receipt write. Validate it before recovering the receipt.
-            string binary = Path.Combine(directory, filename);
-            if (await fileUtil.Exists(binary, cancellationToken))
-            {
-                try
-                {
-                    FirmwareDownload orphan =
-                        await store.Inspect(binary, filename, firmware, long.MaxValue, cancellationToken);
-                    await WriteReceipt(orphan, cancellationToken);
-                    return orphan;
-                }
-                catch (InvalidDataException)
-                {
-                    await Quarantine(binary, cancellationToken);
-                }
-            }
-
-            return null;
-        }
-
-        foreach (FirmwareDownload cached in await GetAll(null, cancellationToken))
-            if (cached.Firmware.DownloadUri == firmware.DownloadUri)
-            {
-                FirmwareDownload reused = cached with { Firmware = firmware };
-                await WriteReceipt(reused, cancellationToken);
-                return reused;
-            }
-        return null;
+        return match;
     }
 
     public async Task<IReadOnlyList<FirmwareDownload>> GetAll(string? serial, CancellationToken cancellationToken)
+    {
+        using FileLockLease lease = await Acquire(cancellationToken);
+        return await GetAllCore(serial, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<FirmwareDownload>> GetAllCore(string? serial, CancellationToken cancellationToken)
     {
         var result = new List<FirmwareDownload>();
         if (!await directoryUtil.Exists(Root, cancellationToken))
@@ -96,20 +78,37 @@ public sealed class FirmwareCache(
         CancellationToken cancellationToken)
     {
         FirmwareFileStore.ValidateFilename(filename);
-        string directory = GetDirectory(filename);
+        using FileLockLease lease = await Acquire(cancellationToken);
+        FirmwareDownload inspected = await store.Inspect(source, filename, firmware, options.Value.MaximumDownloadBytes, cancellationToken);
+        string directory = GetDirectory(filename, inspected.Sha256);
+        // Validate/quarantine a prior entry before attempting recovery or publication.
+        await Read(Path.Combine(directory, "receipt.json"), cancellationToken);
+        string binary = Path.Combine(directory, filename);
+        if (await fileUtil.Exists(binary, cancellationToken))
+        {
+            try
+            {
+                FirmwareDownload existing = await store.Inspect(binary, filename, firmware, options.Value.MaximumDownloadBytes, cancellationToken);
+                if (existing.Sha256 != inspected.Sha256) await Quarantine(binary, cancellationToken);
+            }
+            catch (InvalidDataException) { await Quarantine(binary, cancellationToken); }
+        }
         FirmwareDownload result = await store.Save(source, filename, directory, firmware,
             options.Value.MaximumDownloadBytes, cancellationToken);
+        if (result.Sha256 != inspected.Sha256) throw new IOException("Firmware content changed before cache publication.");
         await WriteReceipt(result, cancellationToken);
         return result;
     }
 
-    private string GetDirectory(string filename)
+    private string GetDirectory(string filename, string digest)
     {
-        // Stable content identity: Seagate's opaque download query keys can change between serial lookups.
+        // Both content and filename are part of the identity; same-name revisions can coexist.
+        if (digest.Length != 64 || !digest.All(char.IsAsciiHexDigit))
+            throw new InvalidDataException("Invalid cache digest.");
         string key =
             Convert.ToHexStringLower(
                 SHA256.HashData(Encoding.UTF8.GetBytes(filename)));
-        return Path.Combine(Root, key);
+        return Path.Combine(Root, digest.ToLowerInvariant(), key);
     }
 
     private async Task WriteReceipt(FirmwareDownload download, CancellationToken cancellationToken)
@@ -146,7 +145,7 @@ public sealed class FirmwareCache(
                 throw new InvalidDataException("Empty cache receipt.");
             FirmwareFileStore.ValidateFilename(entry.Filename);
             SeagateResponseParser.ValidateUri(entry.Firmware.DownloadUri);
-            string directory = GetDirectory(entry.Filename);
+            string directory = GetDirectory(entry.Filename, entry.Sha256);
             if (!Path.GetFullPath(receipt).Equals(Path.Combine(directory, "receipt.json"),
                     OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
                 throw new InvalidDataException("Cache identity does not match its directory.");

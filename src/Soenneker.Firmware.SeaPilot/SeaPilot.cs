@@ -12,7 +12,7 @@ using Soenneker.Firmware.SeaPilot.Options;
 using Soenneker.OpenSeaChest.Util.Abstract;
 using Soenneker.OpenSeaChest.Util.Dtos;
 using System.Linq;
-using Soenneker.Asyncs.Semaphores;
+using Soenneker.Locks.Files;
 using Soenneker.Playwrights.Extensions.Stealth;
 using Soenneker.Playwrights.Installation.Abstract;
 
@@ -25,16 +25,17 @@ public sealed class SeaPilot(
     FirmwareFileStore fileStore,
     FirmwareCache cache,
     FirmwarePackageResolver packages,
+    FirmwareUpdateWriter writer,
+    FirmwareUpdateLock updateLock,
     ILogger<SeaPilot> logger) : ISeaPilot
 {
-    private static readonly AsyncSemaphore UpdateGate = new(1, 1);
 
     public async ValueTask<IReadOnlyList<FirmwareUpdateResult>> UpdateAllDriveFirmwares(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         logger.LogInformation("Waiting for exclusive firmware update access.");
-        using SemaphoreLease lease = await UpdateGate.Acquire(cancellationToken);
+        using FileLockLease lease = await updateLock.Acquire(cancellationToken);
         logger.LogInformation("Discovering attached drives.");
         List<OpenSeaChestDrive> drives = await openSeaChest.GetDrives(cancellationToken);
         var results = new List<FirmwareUpdateResult>(drives.Count);
@@ -78,8 +79,7 @@ public sealed class SeaPilot(
                             result = result with { SkipReason = "Installed firmware is the offered revision or newer." };
                         else
                         {
-                            FirmwareDownload package = await DownloadFirmware(release,
-                                Path.Combine(options.Value.CacheDirectory, "packages"), cancellationToken);
+                            FirmwareDownload package = await DownloadFirmwareCore(release, null, true, cancellationToken);
                             result = result with { Package = package };
                             if (!images.TryGetValue(package.Sha256, out FirmwareImageSelection? image))
                             {
@@ -105,39 +105,19 @@ public sealed class SeaPilot(
 
         logger.LogInformation("Preparation complete. Updating {Count} drives sequentially.",
             results.Count(result => result.Image is not null && result.Error is null && result.SkipReason is null));
-        for (var i = 0; i < results.Count; i++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            FirmwareUpdateResult result = results[i];
-            if (result.Image is null || result.Error is not null || result.SkipReason is not null) continue;
-            try
-            {
-                FirmwareImageSelection image = result.Image;
-                FirmwareDownload verified = await fileStore.Inspect(image.FilePath, Path.GetFileName(image.FilePath),
-                    result.Package!.Firmware, options.Value.MaximumDownloadBytes, cancellationToken);
-                if (verified.Sha256 != image.Sha256) throw new InvalidDataException("Prepared firmware image checksum changed.");
-                VerifyDeviceIdentity(result.Drive, await openSeaChest.GetDrives(cancellationToken));
-                cancellationToken.ThrowIfCancellationRequested();
-                result = result with { FlashAttempted = true };
-                logger.LogInformation("Writing firmware {Revision} to {Device}. Do not disconnect or power off the drive. Cancellation waits for this write.",
-                    image.TargetRevision, result.Drive.Handle);
-                Task<List<string>> flash = openSeaChest.UpgradeFirmware(result.Drive.Handle, image.FilePath, CancellationToken.None).AsTask();
-                await ReportWaiting(flash, "Firmware write");
-                result = result with { NativeOutput = await flash };
-                logger.LogInformation("Native update completed for {Device}; inspect activation instructions.", result.Drive.Handle);
-                foreach (string line in result.NativeOutput) logger.LogInformation("{Device}: {Output}", result.Drive.Handle, line);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception exception)
-            {
-                result = result with { Error = exception };
-                logger.LogError(exception, "Firmware update failed for {Device}. Continuing with remaining drives.", result.Drive.Handle);
-            }
-            results[i] = result;
-        }
-        cancellationToken.ThrowIfCancellationRequested();
-        return results;
+        return await writer.WriteAll(results,
+            token => openSeaChest.GetDrives(token).AsTask(),
+            (device, image, token) => openSeaChest.UpgradeFirmware(device, image, token).AsTask(), cancellationToken);
     }
+
+    public async ValueTask<FirmwareVerification> VerifyFirmware(string serialNumber, string targetRevision,
+        CancellationToken cancellationToken = default)
+    {
+        string serial = ValidateSerial(serialNumber);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetRevision);
+        return FirmwareUpdateWriter.Verify(serial, targetRevision.Trim(), await openSeaChest.GetDrives(cancellationToken));
+    }
+
     public static bool IsSeagateDrive(OpenSeaChestDrive drive) =>
         !string.IsNullOrWhiteSpace(drive.SerialNumber) && !string.IsNullOrWhiteSpace(drive.FirmwareRevision) &&
         !string.IsNullOrWhiteSpace(drive.ModelNumber) &&
@@ -223,7 +203,6 @@ public sealed class SeaPilot(
         CancellationToken cancellationToken = default)
     {
         string serial = ValidateSerial(serialNumber);
-        using SemaphoreLease lease = await FirmwareCache.DownloadGate.Acquire(cancellationToken);
         logger.LogInformation("Checking cached firmware for {Serial} and verifying checksums.", serial);
         IReadOnlyList<FirmwareDownload> downloads = await cache.GetAll(serial, cancellationToken);
         logger.LogInformation("Found {PackageCount} verified cached packages for {Serial}.", downloads.Count, serial);
@@ -243,25 +222,30 @@ public sealed class SeaPilot(
         if (lookup.Releases.Count != 1)
             throw new InvalidOperationException(
                 "Seagate offers multiple packages. Select a release from FindFirmware and call DownloadFirmware.");
-        return await DownloadFirmware(lookup.Releases[0], destinationDirectory, cancellationToken);
+        return await DownloadFirmwareCore(lookup.Releases[0], destinationDirectory, true, cancellationToken);
     }
 
-    public async ValueTask<FirmwareDownload> DownloadFirmware(FirmwareRelease firmware, string destinationDirectory,
+    public ValueTask<FirmwareDownload> DownloadFirmware(FirmwareRelease firmware, string destinationDirectory,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationDirectory);
+        return DownloadFirmwareCore(firmware, destinationDirectory, false, cancellationToken);
+    }
+
+    private async ValueTask<FirmwareDownload> DownloadFirmwareCore(FirmwareRelease firmware, string? destinationDirectory,
+        bool refresh, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(firmware);
         ArgumentNullException.ThrowIfNull(firmware.DownloadUri);
         SeagateResponseParser.ValidateUri(firmware.DownloadUri);
-        ArgumentException.ThrowIfNullOrWhiteSpace(destinationDirectory);
         ValidateSerial(firmware.SerialNumber);
-        string directory = Path.GetFullPath(destinationDirectory);
+        string? directory = destinationDirectory is null ? null : Path.GetFullPath(destinationDirectory);
         logger.LogInformation("Preparing firmware package {Title}. Destination: {Directory}. Waiting for download/cache access.", firmware.Title, directory);
-        using SemaphoreLease lease = await FirmwareCache.DownloadGate.Acquire(cancellationToken);
-        FirmwareDownload? existing = await cache.Find(firmware, null, cancellationToken);
+        FirmwareDownload? existing = refresh ? null : await cache.Find(firmware, null, cancellationToken);
         if (existing is not null)
         {
             logger.LogInformation("Reusing verified cached package {Path}.", existing.FilePath);
-            return await fileStore.Save(existing.FilePath, Path.GetFileName(existing.FilePath), directory, firmware,
+            return await fileStore.Save(existing.FilePath, Path.GetFileName(existing.FilePath), directory!, firmware,
                 options.Value.MaximumDownloadBytes, cancellationToken);
         }
         logger.LogInformation("Downloading firmware from Seagate. Large packages can take several minutes; timeout is {Timeout}.", options.Value.DownloadTimeout);
@@ -287,21 +271,13 @@ public sealed class SeaPilot(
             try
             {
                 SeagateResponseParser.ValidateUri(new Uri(download.Url));
-                FirmwareDownload? cached = await cache.Find(firmware, download.SuggestedFilename, token);
-                if (cached is not null)
-                {
-                    logger.LogInformation("Reusing verified cached package {Path}.", cached.FilePath);
-                    await download.CancelAsync();
-                    return await fileStore.Save(cached.FilePath, download.SuggestedFilename, directory, firmware,
-                        options.Value.MaximumDownloadBytes, token);
-                }
-
                 string? path = await download.PathAsync();
                 string? failure = await download.FailureAsync();
                 if (failure is not null || path is null)
                     throw new IOException("Seagate download failed: " + failure);
                 logger.LogInformation("Download complete. Validating and caching {Filename}.", download.SuggestedFilename);
                 FirmwareDownload stored = await cache.Store(path, download.SuggestedFilename, firmware, token);
+                if (directory is null) return stored;
                 FirmwareDownload saved = await fileStore.Save(stored.FilePath, download.SuggestedFilename, directory, firmware,
                     options.Value.MaximumDownloadBytes, token);
                 logger.LogInformation("Firmware saved to {Path} ({Bytes} bytes).", saved.FilePath, saved.Length);

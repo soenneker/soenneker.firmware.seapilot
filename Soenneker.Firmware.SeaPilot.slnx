@@ -12,6 +12,7 @@
     <Project Path="src/Soenneker.Firmware.SeaPilot/Soenneker.Firmware.SeaPilot.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/Soenneker.Firmware.SeaPilot.LockProbe/Soenneker.Firmware.SeaPilot.LockProbe.csproj" />
     <Project Path="test/Soenneker.Firmware.SeaPilot.Tests/Soenneker.Firmware.SeaPilot.Tests.csproj" />
   </Folder>
 </Solution>
