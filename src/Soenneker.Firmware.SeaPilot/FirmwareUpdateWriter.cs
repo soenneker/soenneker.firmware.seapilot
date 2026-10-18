@@ -75,7 +75,7 @@ public sealed class FirmwareUpdateWriter(FirmwareFileStore files, IOptions<SeaPi
     public static FirmwareVerification Verify(string serial, string target, IReadOnlyList<OpenSeaChestDrive> drives, string? model = null)
     {
         OpenSeaChestDrive[] matches = drives.Where(d => string.Equals(d.SerialNumber, serial, StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (matches.Length == 0 || matches.Any(d => string.IsNullOrWhiteSpace(d.FirmwareRevision) ||
+        if (matches.Length == 0 || matches.Any(d => d.DiscoveryError is not null || string.IsNullOrWhiteSpace(d.FirmwareRevision) ||
             string.IsNullOrWhiteSpace(d.ModelNumber) ||
             !string.Equals(d.ModelNumber, model ?? matches[0].ModelNumber, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(d.FirmwareRevision, matches[0].FirmwareRevision, StringComparison.OrdinalIgnoreCase)))

@@ -13,10 +13,10 @@ namespace Soenneker.Firmware.SeaPilot.Tests;
 [ClassDataSource<Host>(Shared = SharedType.PerTestSession)]
 public sealed class FirmwareUpdateTests(Host host) : HostedUnitTest(host)
 {
-    private static OpenSeaChestDrive Drive(string serial = "EXAMPLE", string model = "ST18000NM000J", string revision = "SN04") => new()
+    private static OpenSeaChestDrive Drive(string serial = "EXAMPLE", string model = "ST18000NM000J", string revision = "SN04", Exception? discoveryError = null) => new()
     {
         Handle = "PD0", SerialNumber = serial, ModelNumber = model, FirmwareRevision = revision,
-        Details = new Dictionary<string, string>(), RawDeviceInfo = []
+        DiscoveryError = discoveryError, Details = new Dictionary<string, string>(), RawDeviceInfo = []
     };
 
     [Test]
@@ -101,5 +101,19 @@ public sealed class FirmwareUpdateTests(Host host) : HostedUnitTest(host)
         }
         finally { File.Delete(path); }
     }
+    [Test]
+    public void DiscoveryFailureCannotAuthorizeFirmwareOperations()
+    {
+        OpenSeaChestDrive unavailable = Drive(discoveryError: new InvalidOperationException("Device unavailable"));
+        if (SeaPilot.IsSeagateDrive(unavailable)) throw new Exception("Discovery error passed eligibility.");
+        bool identityRejected = false;
+        try { SeaPilot.VerifyDeviceIdentity(Drive(), [unavailable]); }
+        catch (InvalidOperationException) { identityRejected = true; }
+        if (!identityRejected) throw new Exception("Discovery error passed pre-write identity check.");
+        try { FirmwareUpdateWriter.Verify("EXAMPLE", "SN04", [unavailable]); }
+        catch (InvalidOperationException) { return; }
+        throw new Exception("Discovery error passed active revision verification.");
+    }
+
 }
 

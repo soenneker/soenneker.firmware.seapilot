@@ -28,7 +28,6 @@ public static class SeaPilotRegistrar
         services.AddZipUtilAsSingleton();
         services.TryAddSingleton<FirmwarePackageResolver>();
         services.TryAddSingleton<FirmwareUpdateWriter>();
-        services.TryAddSingleton<SeaPilotDriveDiscovery>();
         services.TryAddSingleton<FirmwareUpdateLock>();
         services.AddOptions<SeaPilotOptions>();
         if (configure is not null) services.Configure(configure);
@@ -49,7 +48,6 @@ public static class SeaPilotRegistrar
         services.AddZipUtilAsScoped();
         services.TryAddScoped<FirmwarePackageResolver>();
         services.TryAddScoped<FirmwareUpdateWriter>();
-        services.TryAddScoped<SeaPilotDriveDiscovery>();
         services.TryAddSingleton<FirmwareUpdateLock>();
         services.AddOptions<SeaPilotOptions>();
         if (configure is not null) services.Configure(configure);

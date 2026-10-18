@@ -16,7 +16,7 @@
         <AssemblyName>Soenneker.Firmware.SeaPilot</AssemblyName>
         <PackageId>Soenneker.Firmware.SeaPilot</PackageId>
         <PackageTags>firmware seapilot seagate openseachest playwright util csharp dotnet c# .net</PackageTags>
-        <Copyright>Copyright © 2026 Jake Soenneker</Copyright>
+        <Copyright>Copyright Â© 2026 Jake Soenneker</Copyright>
         <Authors>Jake Soenneker</Authors>
         <Company>https://soenneker.com</Company>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -47,7 +47,7 @@
     <ItemGroup>
         <PackageReference Include="Soenneker.Locks.Files" Version="4.0.2" />
         <PackageReference Include="Soenneker.Compression.Zip" Version="4.0.54" />
-        <PackageReference Include="Soenneker.OpenSeaChest.Util" Version="4.0.6" PrivateAssets="none" />
+        <PackageReference Include="Soenneker.OpenSeaChest.Util" Version="4.0.7" PrivateAssets="none" />
         <PackageReference Include="Soenneker.Playwrights.Extensions.Stealth" Version="4.0.182" />
         <PackageReference Include="Soenneker.Playwrights.Installation" Version="4.0.228" />
         <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.967" />
