@@ -72,7 +72,7 @@ public sealed class FirmwareLockTests(Host host) : HostedUnitTest(host)
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         async Task Operation()
         {
-            using FileLockLease lease = await new FileLock(path).Acquire(cancellation.Token);
+            await using FileLockLease lease = await new FileLock(path).Acquire(cancellation.Token);
             entered.SetResult();
             await Task.Delay(Timeout.Infinite, cancellation.Token);
         }
@@ -84,7 +84,7 @@ public sealed class FirmwareLockTests(Host host) : HostedUnitTest(host)
             try { await operation; throw new Exception("Operation ignored cancellation."); }
             catch (OperationCanceledException) { }
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            using FileLockLease next = await new FileLock(path).Acquire(deadline.Token);
+            await using FileLockLease next = await new FileLock(path).Acquire(deadline.Token);
             if (!File.Exists(path)) throw new Exception("Lock file must persist across leases.");
         }
         finally { File.Delete(path); }
@@ -92,7 +92,7 @@ public sealed class FirmwareLockTests(Host host) : HostedUnitTest(host)
 
     private async Task WaitForUpdateLock(CancellationToken token)
     {
-        using FileLockLease lease = await Resolve<FirmwareUpdateLock>(true).Acquire(token);
+        await using FileLockLease lease = await Resolve<FirmwareUpdateLock>(true).Acquire(token);
     }
 
 }

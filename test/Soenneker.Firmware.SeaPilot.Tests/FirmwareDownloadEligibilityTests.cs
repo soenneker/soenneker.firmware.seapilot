@@ -17,8 +17,8 @@ public sealed class FirmwareDownloadEligibilityTests
     [Arguments(null, "package-SN04.zip", false)]
     public async Task CancelsOnlyUnneededAutomaticDownloads(string? installed, string filename, bool skip)
     {
-        bool cancelled = false;
-        bool skipped = false;
+        var cancelled = false;
+        var skipped = false;
         try { await FirmwareDownloadEligibility.CheckDownload(filename, installed, () => { cancelled = true; return Task.CompletedTask; }); }
         catch (FirmwareDownloadSkippedException e)
         {
@@ -53,7 +53,7 @@ public sealed class FirmwareDownloadEligibilityTests
             try { await page.GotoAsync(server.Url); }
             catch (PlaywrightException e) when (e.Message.Contains("ERR_ABORTED") || e.Message.Contains("Download is starting")) { }
         });
-        bool skipped = false;
+        var skipped = false;
         try
         {
             try { await FirmwareDownloadEligibility.CheckDownload(download.SuggestedFilename, "SN06", download.CancelAsync).WaitAsync(TimeSpan.FromSeconds(5)); }

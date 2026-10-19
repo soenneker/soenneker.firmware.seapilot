@@ -21,8 +21,8 @@ public sealed class FirmwareFileStoreTests(Host host) : Soenneker.Tests.HostedUn
         try
         {
             string source = Path.Combine(directory, "input.zip");
-            using (ZipArchive archive = await ZipFile.OpenAsync(source, ZipArchiveMode.Create))
-            using (Stream stream = await archive.CreateEntry("firmware.lod").OpenAsync()) stream.Write([1, 2, 3, 4]);
+            await using (ZipArchive archive = await ZipFile.OpenAsync(source, ZipArchiveMode.Create))
+            await using (Stream stream = await archive.CreateEntry("firmware.lod").OpenAsync()) stream.Write([1, 2, 3, 4]);
             byte[] bytes = await File.ReadAllBytesAsync(source);
             string output = Path.Combine(directory, "output");
             FirmwareDownload result = await Resolve<FirmwareFileStore>(true).Save(source, "firmware.zip", output, Release(), 10000, default);

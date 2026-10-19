@@ -11,7 +11,12 @@ public sealed class FirmwareResponseObserver : IAsyncDisposable
 {
     private ICDPSession? _session;
     private readonly Dictionary<string, FirmwareRemoteIdentity> _responses = new(StringComparer.Ordinal);
-    public FirmwareRemoteIdentity? Find(string url) { lock (_responses) return _responses.GetValueOrDefault(url); }
+
+    public FirmwareRemoteIdentity? Find(string url)
+    {
+        lock (_responses)
+            return _responses.GetValueOrDefault(url);
+    }
 
     public static async Task<FirmwareResponseObserver> Attach(IPage page)
     {
@@ -22,7 +27,11 @@ public sealed class FirmwareResponseObserver : IAsyncDisposable
             observer._session.Event("Network.responseReceived").OnEvent += observer.OnResponse;
             await observer._session.SendAsync("Network.enable");
         }
-        catch (PlaywrightException) { await observer.DisposeAsync(); }
+        catch (PlaywrightException)
+        {
+            await observer.DisposeAsync();
+        }
+
         return observer;
     }
 
@@ -30,18 +39,33 @@ public sealed class FirmwareResponseObserver : IAsyncDisposable
     {
         if (message is not { } data || !data.TryGetProperty("response", out JsonElement response) ||
             !response.TryGetProperty("status", out JsonElement status) || status.GetInt32() != 200 ||
-            !response.TryGetProperty("url", out JsonElement url) || !response.TryGetProperty("headers", out JsonElement headers)) return;
+            !response.TryGetProperty("url", out JsonElement url) ||
+            !response.TryGetProperty("headers", out JsonElement headers))
+            return;
         var values = new Dictionary<string, string>();
-        foreach (JsonProperty property in headers.EnumerateObject()) values[property.Name] = property.Value.ToString();
+        foreach (JsonProperty property in headers.EnumerateObject())
+            values[property.Name] = property.Value.ToString();
         FirmwareRemoteIdentity? identity = FirmwareRemoteIdentity.FromHeaders(url.GetString()!, values);
-        if (identity is not null) { lock (_responses) _responses[identity.Url] = identity; }
+        if (identity is not null)
+        {
+            lock (_responses)
+                _responses[identity.Url] = identity;
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (_session is null) return;
+        if (_session is null)
+            return;
         _session.Event("Network.responseReceived").OnEvent -= OnResponse;
-        try { await _session.DetachAsync(); } catch (PlaywrightException) { }
+        try
+        {
+            await _session.DetachAsync();
+        }
+        catch (PlaywrightException)
+        {
+        }
+
         _session = null;
     }
 }

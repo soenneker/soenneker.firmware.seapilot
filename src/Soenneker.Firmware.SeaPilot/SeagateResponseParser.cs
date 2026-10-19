@@ -12,14 +12,16 @@ public static class SeagateResponseParser
     public static void ValidateUri(Uri uri)
     {
         if (!uri.IsAbsoluteUri || uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort || uri.UserInfo.Length != 0 ||
-            !(uri.Host.Equals("seagate.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".seagate.com", StringComparison.OrdinalIgnoreCase)))
+            !(uri.Host.Equals("seagate.com", StringComparison.OrdinalIgnoreCase) ||
+              uri.Host.EndsWith(".seagate.com", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("Expected an HTTPS download URL on seagate.com.");
     }
 
     public static FirmwareLookup Parse(string json, string serial)
     {
         JsonElement document = JsonUtil.Deserialize(json, SeaPilotJsonContext.Default.JsonElement);
-        if (!document.TryGetProperty("results", out JsonElement results) || results.ValueKind != JsonValueKind.Array || results.GetArrayLength() != 1)
+        if (!document.TryGetProperty("results", out JsonElement results) || results.ValueKind != JsonValueKind.Array ||
+            results.GetArrayLength() != 1)
             throw new InvalidDataException("Seagate returned an unexpected results envelope.");
         JsonElement result = results[0];
         string? error = Text(result, "error");
@@ -41,13 +43,20 @@ public static class SeagateResponseParser
                         throw new InvalidDataException("Seagate returned contradictory firmware results.");
                     break;
                 }
-                string url = Text(item, "firmware") ?? throw new InvalidDataException("Firmware download URL is missing.");
+
+                string url = Text(item, "firmware") ??
+                             throw new InvalidDataException("Firmware download URL is missing.");
                 var uri = new Uri(url, UriKind.Absolute);
                 ValidateUri(uri);
-                releases.Add(new FirmwareRelease { SerialNumber = serial, Title = Text(item, "title") ?? throw new InvalidDataException("Firmware title is missing."),
-                    Description = Text(item, "shortDesc"), DownloadUri = uri });
+                releases.Add(new FirmwareRelease
+                {
+                    SerialNumber = serial,
+                    Title = Text(item, "title") ?? throw new InvalidDataException("Firmware title is missing."),
+                    Description = Text(item, "shortDesc"), DownloadUri = uri
+                });
             }
         }
+
         if (returnedSerial is null && releases.Count != 0)
             throw new InvalidDataException("Firmware results were not associated with a serial number.");
         Uri? support = null;
@@ -57,11 +66,16 @@ public static class SeagateResponseParser
             support = new Uri(supportUrl, UriKind.Absolute);
             ValidateUri(support);
         }
+
         // Unknown serials currently return a generic search URL without sn or firmware.
         if (returnedSerial is null && (support is null || support.AbsolutePath != "/search/"))
-            throw new InvalidDataException("Seagate returned neither a drive identity nor its unknown-serial search response.");
-        return new FirmwareLookup { SerialNumber = serial, IsRecognized = returnedSerial is not null,
-            ModelNumber = Text(result, "model_number"), SupportUri = support, Releases = releases.AsReadOnly() };
+            throw new InvalidDataException(
+                "Seagate returned neither a drive identity nor its unknown-serial search response.");
+        return new FirmwareLookup
+        {
+            SerialNumber = serial, IsRecognized = returnedSerial is not null,
+            ModelNumber = Text(result, "model_number"), SupportUri = support, Releases = releases.AsReadOnly()
+        };
     }
 
     private static string? Text(JsonElement element, string name)
@@ -78,4 +92,3 @@ public static class SeagateResponseParser
         return string.IsNullOrEmpty(text) ? null : text;
     }
 }
-

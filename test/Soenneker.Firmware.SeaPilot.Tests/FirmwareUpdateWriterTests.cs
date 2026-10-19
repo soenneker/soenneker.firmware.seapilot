@@ -20,8 +20,8 @@ public sealed class FirmwareUpdateWriterTests(Host host) : HostedUnitTest(host)
         string source = Path.Combine(Path.GetTempPath(), $"seapilot-{Guid.NewGuid()}.zip");
         try
         {
-            using (var archive = ZipFile.Open(source, ZipArchiveMode.Create))
-            using (Stream stream = archive.CreateEntry("firmware/test-SN06.lod").Open()) stream.Write([1, 2, 3, 4, 5]);
+            await using (var archive = ZipFile.Open(source, ZipArchiveMode.Create))
+            await using (Stream stream = archive.CreateEntry("firmware/test-SN06.lod").Open()) stream.Write([1, 2, 3, 4, 5]);
             var release = new FirmwareRelease { SerialNumber = serial, Title = "Test", DownloadUri = new Uri("https://apps1.seagate.com/test-SN06.zip") };
             FirmwareDownload package = await Resolve<FirmwareCache>(true).Store(source, "test-SN06.zip", release, default);
             FirmwareImageSelection image = await Resolve<FirmwarePackageResolver>(true).Prepare(package, default);

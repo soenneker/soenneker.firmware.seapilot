@@ -26,11 +26,11 @@ public sealed class FirmwarePackageResolver(IZipUtil zipUtil, IFileUtil files, I
         if (!Path.GetExtension(package.FilePath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Automatic updates require a Seagate ZIP package; executable installers are not supported.");
         await directories.Create(options.Value.CacheDirectory, cancellationToken: token);
-        using FileLockLease lease = await new FileLock(Path.Combine(options.Value.CacheDirectory, "cache.lock")).Acquire(token);
+        await using FileLockLease lease = await new FileLock(Path.Combine(options.Value.CacheDirectory, "cache.lock")).Acquire(token);
         string entry;
         string revision;
         await using (FileStream input = files.OpenRead(package.FilePath))
-        using (var archive = new ZipArchive(input, ZipArchiveMode.Read))
+        await using (var archive = new ZipArchive(input, ZipArchiveMode.Read))
         {
             entry = SelectPrimaryImage(archive.Entries.Select(e => e.FullName).ToArray());
             revision = GetRevision(entry);

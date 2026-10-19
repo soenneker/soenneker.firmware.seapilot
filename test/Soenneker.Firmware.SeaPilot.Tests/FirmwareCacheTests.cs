@@ -24,8 +24,8 @@ public sealed class FirmwareCacheTests(Host host) : HostedUnitTest(host)
         try
         {
             string source = Path.Combine(root, "source.zip");
-            using (ZipArchive archive = await ZipFile.OpenAsync(source, ZipArchiveMode.Create))
-            using (Stream stream = await archive.CreateEntry("firmware.lod").OpenAsync()) stream.Write([1, 2, 3, 4]);
+            await using (ZipArchive archive = await ZipFile.OpenAsync(source, ZipArchiveMode.Create))
+            await using (Stream stream = await archive.CreateEntry("firmware.lod").OpenAsync()) stream.Write([1, 2, 3, 4]);
             var cache = Resolve<FirmwareCache>(true);
             FirmwareDownload saved = await cache.Store(source, "firmware.zip", firmware, default);
             await files.Delete(source);

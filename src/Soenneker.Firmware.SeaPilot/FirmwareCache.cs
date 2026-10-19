@@ -37,7 +37,7 @@ public sealed class FirmwareCache(
     public async Task<FirmwareDownload?> Find(FirmwareRelease firmware, string? filename,
         CancellationToken cancellationToken)
     {
-        using FileLockLease lease = await Acquire(cancellationToken);
+        await using FileLockLease lease = await Acquire(cancellationToken);
         // Offline replay is limited to an already recorded serial and exact offering URL.
         // Filename equality never establishes that two offerings have identical bytes.
         FirmwareDownload? match = null;
@@ -53,7 +53,7 @@ public sealed class FirmwareCache(
 
     internal async Task<FirmwareDownload?> FindOffering(FirmwareRelease firmware, string revision, CancellationToken token)
     {
-        using FileLockLease lease = await Acquire(token);
+        await using FileLockLease lease = await Acquire(token);
         if (string.IsNullOrWhiteSpace(firmware.Title) || string.IsNullOrWhiteSpace(firmware.Description)) return null;
         FirmwareDownload? match = null;
         foreach (FirmwareDownload download in await GetAllCore(null, token))
@@ -75,7 +75,7 @@ public sealed class FirmwareCache(
 
     public async Task<FirmwareDownload?> FindValidated(FirmwareRelease firmware, FirmwareRemoteIdentity identity, CancellationToken token)
     {
-        using FileLockLease lease = await Acquire(token);
+        await using FileLockLease lease = await Acquire(token);
         if (identity.Length > options.Value.MaximumDownloadBytes) return null;
         foreach (FirmwareDownload download in await GetAllCore(null, token))
         {
@@ -91,7 +91,7 @@ public sealed class FirmwareCache(
 
     public async Task<IReadOnlyList<FirmwareDownload>> GetAll(string? serial, CancellationToken cancellationToken)
     {
-        using FileLockLease lease = await Acquire(cancellationToken);
+        await using FileLockLease lease = await Acquire(cancellationToken);
         return await GetAllCore(serial, cancellationToken);
     }
 
@@ -116,7 +116,7 @@ public sealed class FirmwareCache(
         CancellationToken cancellationToken, FirmwareRemoteIdentity? identity = null)
     {
         FirmwareFileStore.ValidateFilename(filename);
-        using FileLockLease lease = await Acquire(cancellationToken);
+        await using FileLockLease lease = await Acquire(cancellationToken);
         FirmwareDownload inspected = await store.Inspect(source, filename, firmware, options.Value.MaximumDownloadBytes, cancellationToken);
         string directory = GetDirectory(filename, inspected.Sha256);
         // Validate/quarantine a prior entry before attempting recovery or publication.

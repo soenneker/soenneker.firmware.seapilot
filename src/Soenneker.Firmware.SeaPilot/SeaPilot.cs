@@ -29,34 +29,42 @@ public sealed class SeaPilot(
     FirmwareUpdateLock updateLock,
     ILogger<SeaPilot> logger) : ISeaPilot
 {
-
     public async ValueTask<IReadOnlyList<FirmwareUpdateResult>> UpdateAllDriveFirmwares(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         logger.LogInformation("Waiting for exclusive firmware update access.");
-        using FileLockLease lease = await updateLock.Acquire(cancellationToken);
+        await using FileLockLease lease = await updateLock.Acquire(cancellationToken);
         logger.LogInformation("Discovering attached drives.");
         List<OpenSeaChestDrive> discovered = await openSeaChest.GetDrives(cancellationToken);
         var results = new List<FirmwareUpdateResult>(discovered.Count);
         var serials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var images = new Dictionary<string, FirmwareImageSelection>(StringComparer.Ordinal);
-        logger.LogInformation("Discovered {Count} drives. Preparing all applicable firmware before any writes.", discovered.Count);
+        logger.LogInformation("Discovered {Count} drives. Preparing all applicable firmware before any writes.",
+            discovered.Count);
         foreach (OpenSeaChestDrive drive in discovered)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var result = new FirmwareUpdateResult { Drive = drive };
             if (drive.DiscoveryError is not null)
             {
-                results.Add(result with { SkipReason = "Device information unavailable: " + drive.DiscoveryError.GetBaseException().Message });
+                results.Add(result with
+                {
+                    SkipReason = "Device information unavailable: " +
+                                 drive.DiscoveryError.GetBaseException().Message
+                });
                 continue;
             }
+
             try
             {
-                logger.LogInformation("Checking {Device}: {Model}, serial {Serial}, firmware {Revision}.",
-                    drive.Handle, drive.ModelNumber, drive.SerialNumber, drive.FirmwareRevision);
+                logger.LogInformation("Checking {Device}: {Model}, serial {Serial}, firmware {Revision}.", drive.Handle,
+                    drive.ModelNumber, drive.SerialNumber, drive.FirmwareRevision);
                 if (!IsSeagateDrive(drive))
-                    result = result with { SkipReason = "Not an identified Seagate drive with serial, model and firmware revision." };
+                    result = result with
+                    {
+                        SkipReason = "Not an identified Seagate drive with serial, model and firmware revision."
+                    };
                 else if (!serials.Add(drive.SerialNumber!))
                     result = result with { SkipReason = "Serial already processed through another device handle." };
                 else
@@ -66,54 +74,87 @@ public sealed class SeaPilot(
                     FirmwareLookup lookup = await FindFirmware(drive.SerialNumber!, cancellationToken);
                     ValidateLookupIdentity(drive, lookup);
                     if (!lookup.IsRecognized || lookup.Releases.Count == 0)
-                        result = result with { SkipReason = !lookup.IsRecognized ? "Serial not recognized by Seagate." :
-                            "No firmware offered; this does not establish that installed firmware is current." };
+                        result = result with
+                        {
+                            SkipReason = !lookup.IsRecognized
+                                ? "Serial not recognized by Seagate."
+                                : "No firmware offered; this does not establish that installed firmware is current."
+                        };
                     else
                     {
                         if (lookup.Releases.Count != 1)
-                            throw new InvalidDataException("Multiple offered packages cannot be selected automatically.");
+                            throw new InvalidDataException(
+                                "Multiple offered packages cannot be selected automatically.");
                         FirmwareRelease release = lookup.Releases[0];
                         // A direct versioned ZIP URL can establish that no download is needed. Opaque URLs require the package metadata.
                         string? offeredRevision = null;
                         if (release.DownloadUri.AbsolutePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                         {
-                            try { offeredRevision = FirmwarePackageResolver.GetRevision(release.DownloadUri.AbsolutePath); }
-                            catch (InvalidDataException) { }
+                            try
+                            {
+                                offeredRevision = FirmwarePackageResolver.GetRevision(release.DownloadUri.AbsolutePath);
+                            }
+                            catch (InvalidDataException)
+                            {
+                            }
                         }
-                        if (offeredRevision is not null && !FirmwarePackageResolver.NeedsUpdate(drive.FirmwareRevision!, offeredRevision))
-                            result = result with { SkipReason = "Installed firmware is the offered revision or newer." };
+
+                        if (offeredRevision is not null &&
+                            !FirmwarePackageResolver.NeedsUpdate(drive.FirmwareRevision!, offeredRevision))
+                            result = result with
+                            {
+                                SkipReason = "Installed firmware is the offered revision or newer."
+                            };
                         else
                         {
-                            FirmwareDownload package = await DownloadFirmwareCore(release, null, true, cancellationToken, drive.FirmwareRevision);
+                            FirmwareDownload package = await DownloadFirmwareCore(release, null, true,
+                                cancellationToken, drive.FirmwareRevision);
                             result = result with { Package = package };
                             if (!images.TryGetValue(package.Sha256, out FirmwareImageSelection? image))
                             {
                                 image = await packages.Prepare(package, cancellationToken);
                                 images.Add(package.Sha256, image);
                             }
+
                             result = result with { Image = image };
-                            logger.LogInformation("{Device}: installed {Installed}; package target {Target}.", drive.Handle, drive.FirmwareRevision, image.TargetRevision);
+                            logger.LogInformation("{Device}: installed {Installed}; package target {Target}.",
+                                drive.Handle, drive.FirmwareRevision, image.TargetRevision);
                             FirmwarePackageResolver.ValidateSectorSize(drive, image.FilePath);
                             if (!FirmwarePackageResolver.NeedsUpdate(drive.FirmwareRevision!, image.TargetRevision))
-                                result = result with { SkipReason = "Installed firmware is the offered revision or newer." };
+                                result = result with
+                                {
+                                    SkipReason = "Installed firmware is the offered revision or newer."
+                                };
                             else
-                                logger.LogInformation("Prepared {Revision} for {Device} using shared image {Path}.", image.TargetRevision, drive.Handle, image.FilePath);
+                                logger.LogInformation("Prepared {Revision} for {Device} using shared image {Path}.",
+                                    image.TargetRevision, drive.Handle, image.FilePath);
                         }
                     }
                 }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (FirmwareDownloadSkippedException skipped) { result = result with { SkipReason = skipped.Message }; }
-            catch (Exception exception) { result = result with { Error = exception }; }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (FirmwareDownloadSkippedException skipped)
+            {
+                result = result with { SkipReason = skipped.Message };
+            }
+            catch (Exception exception)
+            {
+                result = result with { Error = exception };
+            }
+
             results.Add(result);
-            if (result.Error is not null) logger.LogError(result.Error, "Could not prepare firmware for {Device}.", drive.Handle);
-            else if (result.SkipReason is not null) logger.LogInformation("Skipped {Device}: {Reason}", drive.Handle, result.SkipReason);
+            if (result.Error is not null)
+                logger.LogError(result.Error, "Could not prepare firmware for {Device}.", drive.Handle);
+            else if (result.SkipReason is not null)
+                logger.LogInformation("Skipped {Device}: {Reason}", drive.Handle, result.SkipReason);
         }
 
         logger.LogInformation("Preparation complete. Updating {Count} drives sequentially.",
             results.Count(result => result.Image is not null && result.Error is null && result.SkipReason is null));
-        return await writer.WriteAll(results,
-            token => openSeaChest.GetDrives(token).AsTask(),
+        return await writer.WriteAll(results, token => openSeaChest.GetDrives(token).AsTask(),
             (device, image, token) => openSeaChest.UpgradeFirmware(device, image, token).AsTask(), cancellationToken);
     }
 
@@ -122,24 +163,29 @@ public sealed class SeaPilot(
     {
         string serial = ValidateSerial(serialNumber);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetRevision);
-        return FirmwareUpdateWriter.Verify(serial, targetRevision.Trim(), await openSeaChest.GetDrives(cancellationToken));
+        return FirmwareUpdateWriter.Verify(serial, targetRevision.Trim(),
+            await openSeaChest.GetDrives(cancellationToken));
     }
 
     public static bool IsSeagateDrive(OpenSeaChestDrive drive) =>
-        drive.DiscoveryError is null && !string.IsNullOrWhiteSpace(drive.SerialNumber) && !string.IsNullOrWhiteSpace(drive.FirmwareRevision) &&
-        !string.IsNullOrWhiteSpace(drive.ModelNumber) &&
+        drive.DiscoveryError is null && !string.IsNullOrWhiteSpace(drive.SerialNumber) &&
+        !string.IsNullOrWhiteSpace(drive.FirmwareRevision) && !string.IsNullOrWhiteSpace(drive.ModelNumber) &&
         (string.Equals(drive.Vendor?.Trim(), "Seagate", StringComparison.OrdinalIgnoreCase) ||
          drive.ModelNumber.StartsWith("ST", StringComparison.OrdinalIgnoreCase));
 
     public static void ValidateLookupIdentity(OpenSeaChestDrive drive, FirmwareLookup lookup)
     {
         if (!string.Equals(drive.SerialNumber, lookup.SerialNumber, StringComparison.OrdinalIgnoreCase) ||
-            lookup.Releases.Any(release => !string.Equals(release.SerialNumber, drive.SerialNumber, StringComparison.OrdinalIgnoreCase)))
+            lookup.Releases.Any(release =>
+                !string.Equals(release.SerialNumber, drive.SerialNumber, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("Firmware lookup or offering belongs to a different drive serial.");
-        if (lookup.IsRecognized && lookup.Releases.Count > 0 &&
-            (lookup.ModelNumber is null || drive.ModelNumber is null ||
-             (!drive.ModelNumber.Equals(lookup.ModelNumber, StringComparison.OrdinalIgnoreCase) &&
-              !drive.ModelNumber.StartsWith(lookup.ModelNumber + "-", StringComparison.OrdinalIgnoreCase))))
+        if (lookup.IsRecognized && lookup.Releases.Count > 0 && (lookup.ModelNumber is null ||
+                                                                 drive.ModelNumber is null ||
+                                                                 (!drive.ModelNumber.Equals(lookup.ModelNumber,
+                                                                      StringComparison.OrdinalIgnoreCase) &&
+                                                                  !drive.ModelNumber.StartsWith(
+                                                                      lookup.ModelNumber + "-",
+                                                                      StringComparison.OrdinalIgnoreCase))))
             throw new InvalidDataException("Local model does not match Seagate's serial-specific offering.");
     }
 
@@ -147,7 +193,8 @@ public sealed class SeaPilot(
     {
         OpenSeaChestDrive? drive = current.SingleOrDefault(d => string.Equals(d.Handle, original.Handle,
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
-        if (drive is null || drive.DiscoveryError is not null || !string.Equals(drive.SerialNumber, original.SerialNumber, StringComparison.OrdinalIgnoreCase) ||
+        if (drive is null || drive.DiscoveryError is not null ||
+            !string.Equals(drive.SerialNumber, original.SerialNumber, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(drive.ModelNumber, original.ModelNumber, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(drive.FirmwareRevision, original.FirmwareRevision, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Device disappeared or its identity/revision changed before flashing.");
@@ -173,7 +220,9 @@ public sealed class SeaPilot(
                                                         }
                                                         """, serial);
             FirmwareLookup lookup = SeagateResponseParser.Parse(json, serial);
-            logger.LogInformation("Lookup complete for {Serial}: recognized {Recognized}, {PackageCount} firmware packages offered.", serial, lookup.IsRecognized, lookup.Releases.Count);
+            logger.LogInformation(
+                "Lookup complete for {Serial}: recognized {Recognized}, {PackageCount} firmware packages offered.",
+                serial, lookup.IsRecognized, lookup.Releases.Count);
             return lookup;
         }, options.Value.LookupTimeout, cancellationToken);
     }
@@ -241,8 +290,9 @@ public sealed class SeaPilot(
         return DownloadFirmwareCore(firmware, destinationDirectory, false, cancellationToken);
     }
 
-    private async ValueTask<FirmwareDownload> DownloadFirmwareCore(FirmwareRelease firmware, string? destinationDirectory,
-        bool refresh, CancellationToken cancellationToken, string? installedRevision = null)
+    private async ValueTask<FirmwareDownload> DownloadFirmwareCore(FirmwareRelease firmware,
+        string? destinationDirectory, bool refresh, CancellationToken cancellationToken,
+        string? installedRevision = null)
     {
         ArgumentNullException.ThrowIfNull(firmware);
         ArgumentNullException.ThrowIfNull(firmware.DownloadUri);
@@ -252,7 +302,8 @@ public sealed class SeaPilot(
         FirmwareDownloadEligibility.Check(firmware.DownloadUri.AbsolutePath, installedRevision);
         string? directory = destinationDirectory is null ? null : Path.GetFullPath(destinationDirectory);
         logger.LogInformation("Preparing {Title} for {Serial}: {Revision}. Destination: {Directory}.", firmware.Title,
-            firmware.SerialNumber, FirmwareDownloadProgress.DescribeRevision(firmware.DownloadUri.AbsolutePath, installedRevision),
+            firmware.SerialNumber,
+            FirmwareDownloadProgress.DescribeRevision(firmware.DownloadUri.AbsolutePath, installedRevision),
             directory ?? options.Value.CacheDirectory);
         FirmwareDownload? existing = refresh ? null : await cache.Find(firmware, null, cancellationToken);
         if (existing is not null)
@@ -261,34 +312,44 @@ public sealed class SeaPilot(
             return await fileStore.Save(existing.FilePath, Path.GetFileName(existing.FilePath), directory!, firmware,
                 options.Value.MaximumDownloadBytes, cancellationToken);
         }
-        logger.LogInformation("Requesting {Title} from Seagate for {Serial}; timeout is {Timeout}.", firmware.Title, firmware.SerialNumber, options.Value.DownloadTimeout);
+
+        logger.LogInformation("Requesting {Title} from Seagate for {Serial}; timeout is {Timeout}.", firmware.Title,
+            firmware.SerialNumber, options.Value.DownloadTimeout);
         return await WithBrowser(async (page, token) =>
         {
             if (SeagateCertificatePage.GetPageUri(firmware.DownloadUri) is { } certificate)
             {
                 try
                 {
-                    await page.GotoAsync(certificate.AbsoluteUri, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 15000 });
+                    await page.GotoAsync(certificate.AbsoluteUri,
+                        new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 15000 });
                     token.ThrowIfCancellationRequested();
                     SeagateResponseParser.ValidateUri(new Uri(page.Url));
                     string? revision = await SeagateCertificatePage.ReadRevision(page, certificate);
                     if (revision is not null)
                     {
-                        logger.LogInformation("{Serial}: installed {Installed}; Seagate page offers {Offered}.", firmware.SerialNumber, installedRevision, revision);
+                        logger.LogInformation("{Serial}: installed {Installed}; Seagate page offers {Offered}.",
+                            firmware.SerialNumber, installedRevision, revision);
                         FirmwareDownloadEligibility.Check($"firmware-{revision}.zip", installedRevision);
                         FirmwareDownload? offeredCache = await cache.FindOffering(firmware, revision, token);
                         if (offeredCache is not null)
                         {
-                            logger.LogInformation("Reusing {Filename} for {Serial}: Seagate offering and revision match; cached SHA-256 verified. No package download needed.",
+                            logger.LogInformation(
+                                "Reusing {Filename} for {Serial}: Seagate offering and revision match; cached SHA-256 verified. No package download needed.",
                                 Path.GetFileName(offeredCache.FilePath), firmware.SerialNumber);
-                            if (directory is null) return offeredCache;
-                            return await fileStore.Save(offeredCache.FilePath, Path.GetFileName(offeredCache.FilePath), directory, firmware,
-                                options.Value.MaximumDownloadBytes, token);
+                            if (directory is null)
+                                return offeredCache;
+                            return await fileStore.Save(offeredCache.FilePath, Path.GetFileName(offeredCache.FilePath),
+                                directory, firmware, options.Value.MaximumDownloadBytes, token);
                         }
                     }
                 }
-                catch (PlaywrightException) { logger.LogDebug("Certificate page metadata unavailable; checking download metadata."); }
+                catch (PlaywrightException)
+                {
+                    logger.LogDebug("Certificate page metadata unavailable; checking download metadata.");
+                }
             }
+
             // HEAD transfers no package body. Only a strong validator for the same final URL
             // can authorize reuse across independently looked-up serials.
             try
@@ -302,28 +363,43 @@ public sealed class SeaPilot(
                     if (head.Status == 200)
                     {
                         FirmwareDownloadEligibility.Check(new Uri(head.Url).AbsolutePath, installedRevision);
-                        string? disposition = head.Headers.FirstOrDefault(header => header.Key.Equals("content-disposition", StringComparison.OrdinalIgnoreCase)).Value;
+                        string? disposition = head.Headers.FirstOrDefault(header =>
+                            header.Key.Equals("content-disposition", StringComparison.OrdinalIgnoreCase)).Value;
                         if (FirmwareDownloadEligibility.GetHeaderFilename(disposition) is { } filename)
                             FirmwareDownloadEligibility.Check(filename, installedRevision);
                     }
-                    FirmwareRemoteIdentity? identity = head.Status == 200 ? FirmwareRemoteIdentity.FromHeaders(head.Url, head.Headers) : null;
-                    FirmwareDownload? validated = identity is null ? null : await cache.FindValidated(firmware, identity, token);
+
+                    FirmwareRemoteIdentity? identity = head.Status == 200
+                        ? FirmwareRemoteIdentity.FromHeaders(head.Url, head.Headers)
+                        : null;
+                    FirmwareDownload? validated =
+                        identity is null ? null : await cache.FindValidated(firmware, identity, token);
                     if (validated is not null)
                     {
                         FirmwareDownloadEligibility.Check(validated.FilePath, installedRevision);
-                        logger.LogInformation("Reusing cached {Filename} for {Serial}: {Revision}; server validator and SHA-256 verified. No package download needed.",
+                        logger.LogInformation(
+                            "Reusing cached {Filename} for {Serial}: {Revision}; server validator and SHA-256 verified. No package download needed.",
                             Path.GetFileName(validated.FilePath), firmware.SerialNumber,
                             FirmwareDownloadProgress.DescribeRevision(validated.FilePath, installedRevision));
-                        if (directory is null) return validated;
-                        return await fileStore.Save(validated.FilePath, Path.GetFileName(validated.FilePath), directory, firmware,
-                            options.Value.MaximumDownloadBytes, token);
+                        if (directory is null)
+                            return validated;
+                        return await fileStore.Save(validated.FilePath, Path.GetFileName(validated.FilePath), directory,
+                            firmware, options.Value.MaximumDownloadBytes, token);
                     }
                 }
-                finally { await head.DisposeAsync(); }
+                finally
+                {
+                    await head.DisposeAsync();
+                }
             }
-            catch (PlaywrightException) { logger.LogDebug("Server metadata unavailable; downloading the current offering."); }
+            catch (PlaywrightException)
+            {
+                logger.LogDebug("Server metadata unavailable; downloading the current offering.");
+            }
+
             await using FirmwareResponseObserver responseObserver = await FirmwareResponseObserver.Attach(page);
-            await using FirmwareDownloadProgress progress = await FirmwareDownloadProgress.Attach(page, logger, firmware.SerialNumber, installedRevision);
+            await using FirmwareDownloadProgress progress =
+                await FirmwareDownloadProgress.Attach(page, logger, firmware.SerialNumber, installedRevision);
             IDownload download = await page.RunAndWaitForDownloadAsync(async () =>
             {
                 // Chromium aborts navigation when it hands a response to the download manager.
@@ -346,18 +422,23 @@ public sealed class SeaPilot(
             {
                 token.ThrowIfCancellationRequested();
                 SeagateResponseParser.ValidateUri(new Uri(download.Url));
-                await FirmwareDownloadEligibility.CheckDownload(download.SuggestedFilename, installedRevision, download.CancelAsync);
+                await FirmwareDownloadEligibility.CheckDownload(download.SuggestedFilename, installedRevision,
+                    download.CancelAsync);
                 logger.LogInformation("Receiving {Filename} for {Serial}: {Revision}.", download.SuggestedFilename,
-                    firmware.SerialNumber, FirmwareDownloadProgress.DescribeRevision(download.SuggestedFilename, installedRevision));
+                    firmware.SerialNumber,
+                    FirmwareDownloadProgress.DescribeRevision(download.SuggestedFilename, installedRevision));
                 string? path = await download.PathAsync();
                 string? failure = await download.FailureAsync();
                 if (failure is not null || path is null)
                     throw new IOException("Seagate download failed: " + failure);
-                logger.LogInformation("Download complete. Validating and caching {Filename}.", download.SuggestedFilename);
-                FirmwareDownload stored = await cache.Store(path, download.SuggestedFilename, firmware, token, responseObserver.Find(download.Url));
-                if (directory is null) return stored;
-                FirmwareDownload saved = await fileStore.Save(stored.FilePath, download.SuggestedFilename, directory, firmware,
-                    options.Value.MaximumDownloadBytes, token);
+                logger.LogInformation("Download complete. Validating and caching {Filename}.",
+                    download.SuggestedFilename);
+                FirmwareDownload stored = await cache.Store(path, download.SuggestedFilename, firmware, token,
+                    responseObserver.Find(download.Url));
+                if (directory is null)
+                    return stored;
+                FirmwareDownload saved = await fileStore.Save(stored.FilePath, download.SuggestedFilename, directory,
+                    firmware, options.Value.MaximumDownloadBytes, token);
                 logger.LogInformation("Firmware saved to {Path} ({Bytes} bytes).", saved.FilePath, saved.Length);
                 return saved;
             }
@@ -369,7 +450,8 @@ public sealed class SeaPilot(
             finally
             {
                 // Playwright cannot delete a canceled artifact; context teardown removes its temporary files.
-                if (!skippedDownload) await download.DeleteAsync();
+                if (!skippedDownload)
+                    await download.DeleteAsync();
             }
         }, options.Value.DownloadTimeout, cancellationToken);
     }
@@ -426,12 +508,17 @@ public sealed class SeaPilot(
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
         while (!operation.IsCompleted)
         {
-            try { await operation.WaitAsync(TimeSpan.FromSeconds(15)); }
+            try
+            {
+                await operation.WaitAsync(TimeSpan.FromSeconds(15));
+            }
             catch (TimeoutException) when (!operation.IsCompleted)
             {
-                logger.LogInformation("{Stage} is still running ({ElapsedSeconds:0} seconds elapsed).", stage, elapsed.Elapsed.TotalSeconds);
+                logger.LogInformation("{Stage} is still running ({ElapsedSeconds:0} seconds elapsed).", stage,
+                    elapsed.Elapsed.TotalSeconds);
             }
         }
+
         await operation;
     }
 
@@ -445,5 +532,3 @@ public sealed class SeaPilot(
         return serial;
     }
 }
-
-

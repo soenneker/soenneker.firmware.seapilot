@@ -55,10 +55,10 @@ public sealed class FirmwarePackageResolverTests(Host host) : HostedUnitTest(hos
         string source = Path.Combine(directory, "Exos-SN06.zip");
         try
         {
-            using (ZipArchive archive = ZipFile.Open(source, ZipArchiveMode.Create))
+            await using (ZipArchive archive = ZipFile.Open(source, ZipArchiveMode.Create))
             {
-                using (Stream current = archive.CreateEntry("firmware/Exos-SN06.LOD").Open()) current.Write([1, 2, 3, 4]);
-                using (Stream previous = archive.CreateEntry("firmware/previous firmware/Exos-SN03.LOD").Open()) previous.Write([5, 6, 7, 8]);
+                await using (Stream current = archive.CreateEntry("firmware/Exos-SN06.LOD").Open()) current.Write([1, 2, 3, 4]);
+                await using (Stream previous = archive.CreateEntry("firmware/previous firmware/Exos-SN03.LOD").Open()) previous.Write([5, 6, 7, 8]);
             }
             var release = new FirmwareRelease { SerialNumber = "PACKAGE", Title = "Exos", DownloadUri = new Uri("https://www.seagate.com/Exos-SN06.zip") };
             FirmwareDownload package = await Resolve<FirmwareFileStore>(true).Inspect(source, Path.GetFileName(source), release, long.MaxValue, default);

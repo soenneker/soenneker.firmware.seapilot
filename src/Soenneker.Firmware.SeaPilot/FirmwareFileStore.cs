@@ -49,7 +49,7 @@ public sealed class FirmwareFileStore(IFileUtil fileUtil, IDirectoryUtil directo
             if (count < 4 || header[0] != 'P' || header[1] != 'K' || header[2] != 3 || header[3] != 4)
                 throw new InvalidDataException("Seagate returned an invalid ZIP header.");
             input.Position = 0;
-            using var archive = new ZipArchive(input, ZipArchiveMode.Read, leaveOpen: true);
+            await using var archive = new ZipArchive(input, ZipArchiveMode.Read, leaveOpen: true);
             if (archive.Entries.Count == 0)
                 throw new InvalidDataException("Seagate returned an empty firmware archive.");
         }
@@ -59,8 +59,8 @@ public sealed class FirmwareFileStore(IFileUtil fileUtil, IDirectoryUtil directo
         return new FirmwareDownload { Firmware = firmware, FilePath = source, Length = length, Sha256 = digest };
     }
 
-    public async Task<FirmwareDownload> Save(string source, string filename, string directory,
-        FirmwareRelease firmware, long maximumBytes, CancellationToken cancellationToken)
+    public async Task<FirmwareDownload> Save(string source, string filename, string directory, FirmwareRelease firmware,
+        long maximumBytes, CancellationToken cancellationToken)
     {
         FirmwareDownload original = await Inspect(source, filename, firmware, maximumBytes, cancellationToken);
         string destination = Path.Combine(directory, filename);
