@@ -47,7 +47,7 @@ public sealed class FirmwareUpdateWriter(
                 {
                     try
                     {
-                        await pending.WaitAsync(TimeSpan.FromSeconds(15), token);
+                        await pending.WaitAsync(TimeSpan.FromSeconds(15));
                     }
                     catch (TimeoutException) when (!pending.IsCompleted)
                     {
