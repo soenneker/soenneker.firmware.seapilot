@@ -35,7 +35,7 @@ internal sealed class LocalFirmwareServer : IAsyncDisposable
                 string? request = await reader.ReadLineAsync(_stop.Token);
                 while (!string.IsNullOrEmpty(await reader.ReadLineAsync(_stop.Token))) { }
                 byte[] body = _slow ? new byte[4096] : [1, 2, 3, 4];
-                string headers = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=firmware-SN06.bin\r\nContent-Length: 4\r\nETag: \"version-one\"\r\nConnection: close\r\n\r\n";
+                var headers = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=firmware-SN06.bin\r\nContent-Length: 4\r\nETag: \"version-one\"\r\nConnection: close\r\n\r\n";
                 if (_slow) headers = headers.Replace("Content-Length: 4", "Content-Length: 1048576");
                 await stream.WriteAsync(Encoding.ASCII.GetBytes(headers), _stop.Token);
                 if (request?.StartsWith("HEAD ") != true)

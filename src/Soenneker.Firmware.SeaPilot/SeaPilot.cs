@@ -417,7 +417,7 @@ public sealed class SeaPilot(
                 {
                 }
             });
-            bool skippedDownload = false;
+            var skippedDownload = false;
             try
             {
                 token.ThrowIfCancellationRequested();

@@ -17,7 +17,7 @@ public sealed class SeagateCertificatePageTests
         Skip.Unless(File.Exists(playwright.Chromium.ExecutablePath), "Install Chromium for certificate parsing tests.");
         await using IBrowser browser = await playwright.Chromium.LaunchAsync(new() { Headless = true });
         IPage page = await browser.NewPageAsync();
-        bool downloaded = false;
+        var downloaded = false;
         page.Download += (_, _) => downloaded = true;
         await page.SetContentAsync("""
             <form id="manageCertificateDownloadForm"><table>

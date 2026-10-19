@@ -53,7 +53,7 @@ public sealed class FirmwareDownloadProgressTests(Host host) : HostedUnitTest(ho
             string? path = await download.PathAsync();
             if (path is null || new FileInfo(path).Length != 1048576 || await download.FailureAsync() is not null)
                 throw new Exception("Telemetry interfered with downloading.");
-            for (int i = 0; i < 20 && progress.Percentage != 100; i++) await Task.Delay(100);
+            for (var i = 0; i < 20 && progress.Percentage != 100; i++) await Task.Delay(100);
             if (progress.Filename != "Exos-SN05.zip" || progress.ReceivedBytes != 1048576 || progress.Percentage != 100)
                 throw new Exception($"Chromium events were not observed: {progress.Filename}, {progress.ReceivedBytes}, {progress.Percentage}");
         }

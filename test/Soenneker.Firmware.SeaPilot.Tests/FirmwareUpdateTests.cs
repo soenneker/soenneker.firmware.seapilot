@@ -106,7 +106,7 @@ public sealed class FirmwareUpdateTests(Host host) : HostedUnitTest(host)
     {
         OpenSeaChestDrive unavailable = Drive(discoveryError: new InvalidOperationException("Device unavailable"));
         if (SeaPilot.IsSeagateDrive(unavailable)) throw new Exception("Discovery error passed eligibility.");
-        bool identityRejected = false;
+        var identityRejected = false;
         try { SeaPilot.VerifyDeviceIdentity(Drive(), [unavailable]); }
         catch (InvalidOperationException) { identityRejected = true; }
         if (!identityRejected) throw new Exception("Discovery error passed pre-write identity check.");

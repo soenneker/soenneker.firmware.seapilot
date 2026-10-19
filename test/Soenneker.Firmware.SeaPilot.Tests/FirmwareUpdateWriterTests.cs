@@ -44,8 +44,8 @@ public sealed class FirmwareUpdateWriterTests(Host host) : HostedUnitTest(host)
         var prepared = new List<FirmwareUpdateResult> { first, second,
             new() { Drive = Drive("SKIP", "SN04"), SkipReason = "No offering" },
             new() { Drive = Drive("PREPFAIL", "SN04"), Error = new InvalidDataException("Bad package") } };
-        int writes = 0;
-        bool active = false;
+        var writes = 0;
+        var active = false;
         var result = await Resolve<FirmwareUpdateWriter>(true).WriteAll(prepared,
             _ => Task.FromResult(new List<OpenSeaChestDrive> { first.Drive, active ? Drive("WRITERSECOND", "SN06", "NEW-HANDLE") : second.Drive }),
             (device, _, token) =>
@@ -69,7 +69,7 @@ public sealed class FirmwareUpdateWriterTests(Host host) : HostedUnitTest(host)
         using var cancellation = new CancellationTokenSource();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var finish = new TaskCompletionSource<List<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
-        int writes = 0;
+        var writes = 0;
         Task pending = Resolve<FirmwareUpdateWriter>(true).WriteAll(results,
             _ => Task.FromResult(new List<OpenSeaChestDrive> { results[0].Drive, results[1].Drive }),
             (_, _, token) => { if (token.CanBeCanceled) throw new Exception("Write token was cancellable."); writes++; entered.SetResult(); return finish.Task; }, cancellation.Token);
@@ -87,7 +87,7 @@ public sealed class FirmwareUpdateWriterTests(Host host) : HostedUnitTest(host)
     public async Task ChangedImageAndDevicePreventNativeWrites()
     {
         FirmwareUpdateResult prepared = await Prepare("CHANGED");
-        int writes = 0;
+        var writes = 0;
         foreach (bool changeImage in new[] { true, false })
         {
             var result = await Resolve<FirmwareUpdateWriter>(true).WriteAll(
@@ -103,7 +103,7 @@ public sealed class FirmwareUpdateWriterTests(Host host) : HostedUnitTest(host)
     public async Task VerificationFailurePreservesSuccessfulWrite()
     {
         FirmwareUpdateResult prepared = await Prepare("MISSINGAFTERWRITE");
-        bool written = false;
+        var written = false;
         var results = await Resolve<FirmwareUpdateWriter>(true).WriteAll([prepared],
             _ => Task.FromResult(written ? new List<OpenSeaChestDrive>() : new List<OpenSeaChestDrive> { prepared.Drive }),
             (_, _, _) => { written = true; return Task.FromResult(new List<string> { "Completed" }); }, default);

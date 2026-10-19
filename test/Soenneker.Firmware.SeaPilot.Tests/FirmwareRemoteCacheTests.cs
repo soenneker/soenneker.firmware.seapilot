@@ -18,7 +18,7 @@ public sealed class FirmwareRemoteCacheTests(Host host) : HostedUnitTest(host)
         var firmware = new FirmwareRelease { SerialNumber = "PERSISTED", Title = "Offering " + Guid.NewGuid(),
             Description = "512E firmware", DownloadUri = new Uri("https://apps1.seagate.com/package") };
         string source = Path.Combine(Path.GetTempPath(), $"firmware-{Guid.NewGuid()}.bin");
-        string filename = $"test-{Guid.NewGuid()}-SN06.bin";
+        var filename = $"test-{Guid.NewGuid()}-SN06.bin";
         try
         {
             await File.WriteAllBytesAsync(source, [1, 2, 3, 4, 5, 6]);
@@ -48,7 +48,7 @@ public sealed class FirmwareRemoteCacheTests(Host host) : HostedUnitTest(host)
             Description = "512E firmware", DownloadUri = new Uri("https://apps1.seagate.com/downloads/certificate.html?action=performDownload&key=111") };
         var second = first with { SerialNumber = "OFFERSECOND", DownloadUri = new Uri("https://apps1.seagate.com/downloads/certificate.html?action=performDownload&key=222") };
         string source = Path.Combine(Path.GetTempPath(), $"firmware-{Guid.NewGuid()}.bin");
-        string filename = $"test-{Guid.NewGuid()}-SN06.bin";
+        var filename = $"test-{Guid.NewGuid()}-SN06.bin";
         try
         {
             await File.WriteAllBytesAsync(source, [1, 2, 3, 4]);
