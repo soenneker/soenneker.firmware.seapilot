@@ -2,7 +2,7 @@
 
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFramework>net11.0</TargetFramework>
         <IsAotCompatible>true</IsAotCompatible>
         <Nullable>enable</Nullable>
         <Platforms>AnyCPU</Platforms>
@@ -11,7 +11,7 @@
 
     <PropertyGroup>
         <Description>Seagate firmware discovery and downloads using OpenSeaChest and stealth browser automation.</Description>
-        <Version Condition="'$(BUILD_VERSION)' == ''">4.0.0</Version>
+        <Version Condition="'$(BUILD_VERSION)' == ''">11.0.0</Version>
         <Version Condition="'$(BUILD_VERSION)' != ''">$(BUILD_VERSION)</Version>
         <AssemblyName>Soenneker.Firmware.SeaPilot</AssemblyName>
         <PackageId>Soenneker.Firmware.SeaPilot</PackageId>
@@ -47,11 +47,11 @@
     <ItemGroup>
         <PackageReference Include="Soenneker.Locks.Files" Version="4.0.2" />
         <PackageReference Include="Soenneker.Compression.Zip" Version="4.0.54" />
-        <PackageReference Include="Soenneker.OpenSeaChest.Util" Version="4.0.7" PrivateAssets="none" />
-        <PackageReference Include="Soenneker.Playwrights.Extensions.Stealth" Version="4.0.182" />
-        <PackageReference Include="Soenneker.Playwrights.Installation" Version="4.0.228" />
+        <PackageReference Include="Soenneker.OpenSeaChest.Util" Version="4.0.8" PrivateAssets="none" />
+        <PackageReference Include="Soenneker.Playwrights.Extensions.Stealth" Version="4.0.187" />
+        <PackageReference Include="Soenneker.Playwrights.Installation" Version="4.0.232" />
         <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.967" />
-        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2319" />
+        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2320" />
         <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2757" />
     </ItemGroup>
     <ItemGroup>

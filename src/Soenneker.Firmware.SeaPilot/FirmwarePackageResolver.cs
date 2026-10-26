@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Soenneker.Compression.Zip.Abstract;
-using Soenneker.Compression.Zip.Options;
+using ZipExtractionOptions = Soenneker.Compression.Zip.Options.ZipExtractionOptions;
 using Soenneker.Firmware.SeaPilot.Dtos;
 using Soenneker.Firmware.SeaPilot.Options;
 using Soenneker.OpenSeaChest.Util.Dtos;
