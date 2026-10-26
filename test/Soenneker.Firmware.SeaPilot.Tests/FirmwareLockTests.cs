@@ -27,8 +27,9 @@ public sealed class FirmwareLockTests(Host host) : HostedUnitTest(host)
         catch (UnauthorizedAccessException) { Skip.Unless(false, "Machine-wide update lock requires administrator/root access."); }
         var output = new DirectoryInfo(AppContext.BaseDirectory);
         string configuration = output.Parent!.Name;
+        string targetFramework = output.Name;
         string tests = output.Parent.Parent!.Parent!.Parent!.FullName;
-        string probe = Path.Combine(tests, "Soenneker.Firmware.SeaPilot.LockProbe", "bin", configuration, "net10.0", "Soenneker.Firmware.SeaPilot.LockProbe.dll");
+        string probe = Path.Combine(tests, "Soenneker.Firmware.SeaPilot.LockProbe", "bin", configuration, targetFramework, "Soenneker.Firmware.SeaPilot.LockProbe.dll");
         var start = new ProcessStartInfo("dotnet") { RedirectStandardInput = true, RedirectStandardOutput = true,
             RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         start.ArgumentList.Add(probe);
