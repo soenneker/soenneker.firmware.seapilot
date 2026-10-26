@@ -82,12 +82,10 @@ public sealed class SeaPilot(
                         };
                     else
                     {
-                        if (lookup.Releases.Count != 1)
-                            throw new InvalidDataException(
-                                "Multiple offered packages cannot be selected automatically.");
-                        FirmwareRelease release = lookup.Releases[0];
+                        (FirmwareRelease release, string? selectedRevision) = await SelectLatestRelease(
+                            lookup.Releases, drive.FirmwareRevision, cancellationToken);
                         // A direct versioned ZIP URL can establish that no download is needed. Opaque URLs require the package metadata.
-                        string? offeredRevision = null;
+                        string? offeredRevision = selectedRevision;
                         if (release.DownloadUri.AbsolutePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                         {
                             try
@@ -116,6 +114,8 @@ public sealed class SeaPilot(
                                 images.Add(package.Sha256, image);
                             }
 
+                            if (selectedRevision is not null && !selectedRevision.Equals(image.TargetRevision, StringComparison.OrdinalIgnoreCase))
+                                throw new InvalidDataException("Selected offering and downloaded image revisions disagree.");
                             result = result with { Image = image };
                             logger.LogInformation("{Device}: installed {Installed}; package target {Target}.",
                                 drive.Handle, drive.FirmwareRevision, image.TargetRevision);
@@ -277,10 +277,42 @@ public sealed class SeaPilot(
         if (lookup.Releases.Count == 0)
             throw new InvalidOperationException(
                 "Seagate currently offers no firmware download for this serial number.");
-        if (lookup.Releases.Count != 1)
-            throw new InvalidOperationException(
-                "Seagate offers multiple packages. Select a release from FindFirmware and call DownloadFirmware.");
-        return await DownloadFirmwareCore(lookup.Releases[0], destinationDirectory, true, cancellationToken);
+        (FirmwareRelease release, _) = await SelectLatestRelease(lookup.Releases, null, cancellationToken);
+        return await DownloadFirmwareCore(release, destinationDirectory, true, cancellationToken);
+    }
+
+    private async ValueTask<(FirmwareRelease Release, string? Revision)> SelectLatestRelease(
+        IReadOnlyList<FirmwareRelease> releases, string? installedRevision, CancellationToken cancellationToken)
+    {
+        if (releases.Count == 1) return (releases[0], null);
+        return await WithBrowser(async (page, token) =>
+        {
+            var offerings = new List<(FirmwareRelease Release, string Revision)>();
+            foreach (FirmwareRelease release in releases)
+            {
+                token.ThrowIfCancellationRequested();
+                SeagateResponseParser.ValidateUri(release.DownloadUri);
+                string? revision = null;
+                if (release.DownloadUri.AbsolutePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                    revision = FirmwarePackageResolver.GetRevision(release.DownloadUri.AbsolutePath);
+                else if (SeagateCertificatePage.GetPageUri(release.DownloadUri) is { } certificate)
+                {
+                    IResponse? response = await page.GotoAsync(certificate.AbsoluteUri,
+                        new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+                    SeagateResponseParser.ValidateUri(new Uri(page.Url));
+                    if (response is null || !response.Ok)
+                        throw new IOException($"Seagate certificate page returned HTTP {response?.Status}.");
+                    revision = await SeagateCertificatePage.ReadRevision(page, certificate);
+                }
+                if (revision is null)
+                    throw new InvalidDataException("Cannot establish the revision of every offered package; latest selection is ambiguous.");
+                logger.LogInformation("Offering for {Serial}: {Title}, revision {Revision}.", release.SerialNumber, release.Title, revision);
+                offerings.Add((release, revision));
+            }
+            var selected = FirmwareReleaseSelector.Select(offerings, installedRevision);
+            logger.LogInformation("Selected latest offered revision {Revision} for {Serial}.", selected.Revision, selected.Release.SerialNumber);
+            return (selected.Release, (string?)selected.Revision);
+        }, options.Value.DownloadTimeout, cancellationToken);
     }
 
     public ValueTask<FirmwareDownload> DownloadFirmware(FirmwareRelease firmware, string destinationDirectory,
