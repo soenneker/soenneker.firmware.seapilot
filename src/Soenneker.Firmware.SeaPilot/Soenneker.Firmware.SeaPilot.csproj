@@ -47,8 +47,8 @@
 
     <ItemGroup>
         <PackageReference Include="Soenneker.Locks.Files" Version="11.0.7" />
-        <PackageReference Include="Soenneker.Compression.Zip" Version="4.0.54" />
-        <PackageReference Include="Soenneker.OpenSeaChest.Util" Version="11.0.17" PrivateAssets="none" />
+        <PackageReference Include="Soenneker.Compression.Zip" Version="11.0.60" />
+        <PackageReference Include="Soenneker.OpenSeaChest.Util" Version="11.0.18" PrivateAssets="none" />
         <PackageReference Include="Soenneker.Playwrights.Extensions.Stealth" Version="11.0.191" />
         <PackageReference Include="Soenneker.Playwrights.Installation" Version="11.0.239" />
         <PackageReference Include="Soenneker.Utils.Directory" Version="11.0.970" />
