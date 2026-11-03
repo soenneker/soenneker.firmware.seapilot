@@ -52,7 +52,7 @@
         <PackageReference Include="Soenneker.Playwrights.Extensions.Stealth" Version="11.0.191" />
         <PackageReference Include="Soenneker.Playwrights.Installation" Version="11.0.241" />
         <PackageReference Include="Soenneker.Utils.Directory" Version="11.0.970" />
-        <PackageReference Include="Soenneker.Utils.File" Version="11.0.2329" />
+        <PackageReference Include="Soenneker.Utils.File" Version="11.0.2330" />
         <PackageReference Include="Soenneker.Utils.Json" Version="11.0.2770" />
     </ItemGroup>
     <ItemGroup>
