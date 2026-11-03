@@ -141,7 +141,7 @@ jobs:
             --api-key "${{ secrets.GH__TOKEN }}" \
             --skip-duplicate
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: seapilot-*
           path: artifacts/releases
