@@ -46,14 +46,14 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Locks.Files" Version="11.0.14" />
-        <PackageReference Include="Soenneker.Compression.Zip" Version="11.0.68" />
-        <PackageReference Include="Soenneker.OpenSeaChest.Util" Version="11.0.31" PrivateAssets="none" />
-        <PackageReference Include="Soenneker.Playwrights.Extensions.Stealth" Version="11.0.197" />
-        <PackageReference Include="Soenneker.Playwrights.Installation" Version="11.0.248" />
-        <PackageReference Include="Soenneker.Utils.Directory" Version="11.0.976" />
-        <PackageReference Include="Soenneker.Utils.File" Version="11.0.2338" />
-        <PackageReference Include="Soenneker.Utils.Json" Version="11.0.2784" />
+        <PackageReference Include="Soenneker.Locks.Files" Version="11.0.15" />
+        <PackageReference Include="Soenneker.Compression.Zip" Version="11.0.69" />
+        <PackageReference Include="Soenneker.OpenSeaChest.Util" Version="11.0.32" PrivateAssets="none" />
+        <PackageReference Include="Soenneker.Playwrights.Extensions.Stealth" Version="11.0.198" />
+        <PackageReference Include="Soenneker.Playwrights.Installation" Version="11.0.250" />
+        <PackageReference Include="Soenneker.Utils.Directory" Version="11.0.977" />
+        <PackageReference Include="Soenneker.Utils.File" Version="11.0.2341" />
+        <PackageReference Include="Soenneker.Utils.Json" Version="11.0.2785" />
     </ItemGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="Soenneker.Firmware.SeaPilot.Tests" />
