@@ -48,12 +48,12 @@
     <ItemGroup>
         <PackageReference Include="Soenneker.Locks.Files" Version="11.0.18" />
         <PackageReference Include="Soenneker.Compression.Zip" Version="11.0.76" />
-        <PackageReference Include="Soenneker.OpenSeaChest.Util" Version="11.0.41" PrivateAssets="none" />
-        <PackageReference Include="Soenneker.Playwrights.Extensions.Stealth" Version="11.0.203" />
+        <PackageReference Include="Soenneker.OpenSeaChest.Util" Version="11.0.42" PrivateAssets="none" />
+        <PackageReference Include="Soenneker.Playwrights.Extensions.Stealth" Version="11.0.204" />
         <PackageReference Include="Soenneker.Playwrights.Installation" Version="11.0.259" />
         <PackageReference Include="Soenneker.Utils.Directory" Version="11.0.982" />
-        <PackageReference Include="Soenneker.Utils.File" Version="11.0.2344" />
-        <PackageReference Include="Soenneker.Utils.Json" Version="11.0.2790" />
+        <PackageReference Include="Soenneker.Utils.File" Version="11.0.2345" />
+        <PackageReference Include="Soenneker.Utils.Json" Version="11.0.2791" />
     </ItemGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="Soenneker.Firmware.SeaPilot.Tests" />
