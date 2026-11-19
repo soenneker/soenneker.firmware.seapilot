@@ -53,7 +53,7 @@
         <PackageReference Include="Soenneker.Playwrights.Installation" Version="11.0.264" />
         <PackageReference Include="Soenneker.Utils.Directory" Version="11.0.986" />
         <PackageReference Include="Soenneker.Utils.File" Version="11.0.2348" />
-        <PackageReference Include="Soenneker.Utils.Json" Version="11.0.2796" />
+        <PackageReference Include="Soenneker.Utils.Json" Version="11.0.2797" />
     </ItemGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="Soenneker.Firmware.SeaPilot.Tests" />
